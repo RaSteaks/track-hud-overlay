@@ -11,34 +11,31 @@ export interface NormalizedPoint {
 const EARTH_R = 6378137;
 
 export function projectLonLat(points: LonLat[]): NormalizedPoint[] {
-  if (points.length === 0) return [];
+  return projectLonLatLayers([points])[0] ?? [];
+}
+
+// Project multiple layers into a shared local planar frame (meters) so
+// they align in the minimap. Origin is the first point of the first layer;
+// cosLat correction uses the mean latitude across all points.
+// NOTE: coordinates are returned in meters — downstream code owns the
+// meters→pixel scaling.
+export function projectLonLatLayers(layers: LonLat[][]): NormalizedPoint[][] {
+  const all: LonLat[] = [];
+  for (const layer of layers) all.push(...layer);
+  if (all.length === 0) return layers.map(() => []);
 
   let sumLat = 0;
-  for (const p of points) sumLat += p.lat;
-  const centerLat = sumLat / points.length;
+  for (const p of all) sumLat += p.lat;
+  const centerLat = sumLat / all.length;
   const cosLat = Math.cos((centerLat * Math.PI) / 180);
+  const originLon = all[0].lon;
+  const originLat = all[0].lat;
 
-  const planar = points.map(p => ({
-    x: ((p.lon - points[0].lon) * Math.PI * EARTH_R * cosLat) / 180,
-    y: ((p.lat - points[0].lat) * Math.PI * EARTH_R) / 180,
-  }));
-
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of planar) {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-  }
-  const spanX = maxX - minX || 1;
-  const spanY = maxY - minY || 1;
-  const span = Math.max(spanX, spanY);
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-
-  // Normalize to [-1, 1] with equal aspect. Flip Y so north-up in SVG.
-  return planar.map(p => ({
-    x: ((p.x - cx) / span) * 2,
-    y: -((p.y - cy) / span) * 2,
-  }));
+  return layers.map(layer =>
+    layer.map(p => ({
+      x: ((p.lon - originLon) * Math.PI * EARTH_R * cosLat) / 180,
+      // Flip Y so north is up in SVG (SVG y-axis points down).
+      y: -((p.lat - originLat) * Math.PI * EARTH_R) / 180,
+    })),
+  );
 }

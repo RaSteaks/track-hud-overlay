@@ -1,4 +1,4 @@
-import type { Track, TelemetrySample } from '../data/schema';
+import type { Track, TrackLayer, TrackPoint, TelemetrySample } from '../data/schema';
 import { poseAt } from '../data/track';
 import { Draggable } from './Draggable';
 
@@ -11,10 +11,27 @@ interface Props {
 
 const DISC = 240;
 const RADIUS = DISC / 2 - 12;
-const PADDING = 0.82;
 
+// Real-world scale: half-width of the visible disc in meters. The disc
+// pixel radius maps to this many meters, so the visible diameter is 2×.
+const VIEW_RADIUS_M = 200;
+const M_TO_PX = RADIUS / VIEW_RADIUS_M;
+
+// Track coords are now in meters (see util/projection.ts). toViewCoord
+// converts world meters into SVG pixels centered on the disc origin; the
+// outer <g> translates the car to ANCHOR_Y and rotates for heading-up.
 function toViewCoord(x: number, y: number): [number, number] {
-  return [DISC / 2 + x * RADIUS * PADDING, DISC / 2 + y * RADIUS * PADDING];
+  return [DISC / 2 + x * M_TO_PX, DISC / 2 + y * M_TO_PX];
+}
+
+// Pick a "round" scale-bar length that fits comfortably inside the disc.
+function pickScaleBarMeters(): number {
+  const targetPx = RADIUS * 0.55;
+  const targetM = targetPx / M_TO_PX;
+  const steps = [10, 20, 25, 50, 100, 200, 250, 500, 1000];
+  let best = steps[0];
+  for (const s of steps) if (s <= targetM) best = s;
+  return best;
 }
 
 export function Minimap({ track, sample, currentTime, playerName }: Props) {
@@ -27,26 +44,48 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
     : null;
 
   const progressFrac = Math.max(0, Math.min(1, sample?.progress ?? 0));
-  const traversedCount = track ? Math.max(1, Math.floor(track.points.length * progressFrac)) : 0;
 
-  const fullPath = track
-    ? track.points
-        .map((p, i) => {
-          const [vx, vy] = toViewCoord(p.x, p.y);
-          return `${i === 0 ? 'M' : 'L'} ${vx.toFixed(2)} ${vy.toFixed(2)}`;
-        })
-        .join(' ')
-    : '';
+  const pointsToPath = (pts: TrackPoint[]): string =>
+    pts
+      .map((p, i) => {
+        const [vx, vy] = toViewCoord(p.x, p.y);
+        return `${i === 0 ? 'M' : 'L'} ${vx.toFixed(2)} ${vy.toFixed(2)}`;
+      })
+      .join(' ');
 
-  const traversedPath = track
-    ? track.points
-        .slice(0, traversedCount)
-        .map((p, i) => {
-          const [vx, vy] = toViewCoord(p.x, p.y);
-          return `${i === 0 ? 'M' : 'L'} ${vx.toFixed(2)} ${vy.toFixed(2)}`;
-        })
-        .join(' ')
-    : '';
+  const layers = track?.layers ?? [];
+  const referenceLayers = layers.filter(l => l.kind === 'reference');
+  const plannedLayer = layers.find(l => l.kind === 'planned');
+  const drivenLayer = layers.find(l => l.kind === 'driven') ?? plannedLayer;
+
+  const splitAtProgress = (layer: TrackLayer): { walked: TrackPoint[]; ahead: TrackPoint[] } => {
+    const pts = layer.points;
+    if (pts.length < 2) return { walked: pts, ahead: [] };
+    const hasTime = pts[0].t !== undefined;
+    const target =
+      hasTime && sample
+        ? currentTime
+        : progressFrac * layer.totalLength;
+    let cut = 0;
+    if (hasTime) {
+      for (let i = 0; i < pts.length; i++) {
+        if ((pts[i].t ?? 0) <= target) cut = i;
+        else break;
+      }
+    } else {
+      for (let i = 0; i < pts.length; i++) {
+        if (pts[i].distance <= target) cut = i;
+        else break;
+      }
+    }
+    cut = Math.max(0, Math.min(pts.length - 1, cut));
+    return {
+      walked: pts.slice(0, cut + 1),
+      ahead: pts.slice(cut),
+    };
+  };
+
+  const drivenSplit = drivenLayer ? splitAtProgress(drivenLayer) : null;
 
   const [mx, my] = pose ? toViewCoord(pose.x, pose.y) : [DISC / 2, DISC / 2];
   // headingRad uses atan2(dx, -dy): 0 = north (up), CW. No offset needed.
@@ -65,24 +104,20 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   const nx = DISC / 2 + Math.sin(mapAngleRad) * N_RADIUS;
   const ny = DISC / 2 - Math.cos(mapAngleRad) * N_RADIUS;
 
-  const trackLenKm = track
-    ? (() => {
-        let total = 0;
-        for (let i = 1; i < track.points.length; i++) {
-          const dx = track.points[i].x - track.points[i - 1].x;
-          const dy = track.points[i].y - track.points[i - 1].y;
-          total += Math.hypot(dx, dy);
-        }
-        return total;
-      })()
-    : 0;
+  // track.totalLength is already in meters (shared planar frame).
+  const routeLayer = plannedLayer ?? drivenLayer;
+  const trackLenM = routeLayer?.totalLength ?? 0;
+  const distLabel = trackLenM > 0 ? `${(trackLenM / 1000).toFixed(2)} KM` : '— KM';
 
-  const distLabel = track ? `${(trackLenKm * 1.2).toFixed(1)} KM` : '— KM';
+  const scaleBarM = pickScaleBarMeters();
+  const scaleBarPx = scaleBarM * M_TO_PX;
+  const scaleBarLabel = scaleBarM >= 1000 ? `${scaleBarM / 1000} KM` : `${scaleBarM} M`;
+  const finishLayer = plannedLayer ?? drivenLayer;
   const finish =
-    track && track.points.length
+    finishLayer && finishLayer.points.length
       ? toViewCoord(
-          track.points[track.points.length - 1].x,
-          track.points[track.points.length - 1].y,
+          finishLayer.points[finishLayer.points.length - 1].x,
+          finishLayer.points[finishLayer.points.length - 1].y,
         )
       : null;
   const elapsedSec = Math.floor(currentTime);
@@ -171,18 +206,46 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
                 <g
                   transform={`translate(${DISC / 2} ${ANCHOR_Y}) rotate(${mapAngle}) translate(${-mx} ${-my})`}
                 >
-                  <path
-                    d={fullPath}
-                    fill="none"
-                    stroke="var(--teal)"
-                    strokeWidth={8}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    opacity={0.85}
-                  />
-                  {traversedCount > 1 && (
+                  {/* Reference layers — dim gray, background context */}
+                  {referenceLayers.map((layer, i) => (
                     <path
-                      d={traversedPath}
+                      key={`ref-${i}`}
+                      d={pointsToPath(layer.points)}
+                      fill="none"
+                      stroke="rgba(255,255,255,0.18)"
+                      strokeWidth={5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
+                  {/* Planned route — full length, dim teal */}
+                  {plannedLayer && (
+                    <path
+                      d={pointsToPath(plannedLayer.points)}
+                      fill="none"
+                      stroke="var(--teal)"
+                      strokeWidth={7}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.45}
+                    />
+                  )}
+                  {/* Driven ahead — dim continuation of current path */}
+                  {drivenSplit && drivenSplit.ahead.length > 1 && !plannedLayer && (
+                    <path
+                      d={pointsToPath(drivenSplit.ahead)}
+                      fill="none"
+                      stroke="var(--teal)"
+                      strokeWidth={7}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={0.55}
+                    />
+                  )}
+                  {/* Driven walked — bright amber, trailing from start to car */}
+                  {drivenSplit && drivenSplit.walked.length > 1 && (
+                    <path
+                      d={pointsToPath(drivenSplit.walked)}
                       fill="none"
                       stroke="var(--amber)"
                       strokeWidth={8}
@@ -238,6 +301,38 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
             >
               N
             </text>
+
+            {/* Scale bar — fixed, untilted */}
+            <g transform={`translate(${DISC / 2 - scaleBarPx / 2} ${DISC - 18})`}>
+              <line
+                x1={0}
+                y1={0}
+                x2={scaleBarPx}
+                y2={0}
+                stroke="var(--ink)"
+                strokeWidth={1.5}
+              />
+              <line x1={0} y1={-3} x2={0} y2={3} stroke="var(--ink)" strokeWidth={1.5} />
+              <line
+                x1={scaleBarPx}
+                y1={-3}
+                x2={scaleBarPx}
+                y2={3}
+                stroke="var(--ink)"
+                strokeWidth={1.5}
+              />
+              <text
+                x={scaleBarPx / 2}
+                y={-6}
+                textAnchor="middle"
+                fill="var(--ink-dim)"
+                fontFamily="var(--mono)"
+                fontSize={9}
+                letterSpacing="0.18em"
+              >
+                {scaleBarLabel}
+              </text>
+            </g>
           </svg>
         </div>
       </Draggable>

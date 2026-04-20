@@ -28,7 +28,18 @@ export interface TrackPoint {
   t?: number;
 }
 
+export type TrackLayerKind = 'driven' | 'planned' | 'reference';
+
+export interface TrackLayer {
+  kind: TrackLayerKind;
+  name?: string;
+  points: TrackPoint[];
+  totalLength: number;
+}
+
 export interface Track {
+  layers: TrackLayer[];
+  // Primary layer for player pose. Prefer driven, then planned, then first.
   points: TrackPoint[];
   totalLength: number;
 }

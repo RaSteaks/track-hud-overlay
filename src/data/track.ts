@@ -1,54 +1,81 @@
 import { gpx } from '@tmcw/togeojson';
-import type { Track, TrackPoint } from './schema';
-import { projectLonLat, type LonLat } from '../util/projection';
+import type { Track, TrackLayer, TrackLayerKind, TrackPoint } from './schema';
+import { projectLonLatLayers, type LonLat } from '../util/projection';
 import { clamp } from '../util/units';
 
 interface RawPoint extends LonLat {
   t?: number;
 }
 
-function extractFromGeoJson(geo: any): RawPoint[] {
-  const out: RawPoint[] = [];
+interface RawLayer {
+  kind: TrackLayerKind;
+  name?: string;
+  points: RawPoint[];
+}
+
+function classifyKind(props: any, gpxType: string | undefined): TrackLayerKind {
+  if (gpxType === 'rte') return 'planned';
+  const explicit = String(props?.kind ?? props?.type ?? '').toLowerCase();
+  if (explicit === 'driven' || explicit === 'planned' || explicit === 'reference') {
+    return explicit;
+  }
+  const name = String(props?.name ?? '').toLowerCase();
+  if (/(^|\b)(ref|reference|bg|background|ghost)\b/.test(name)) return 'reference';
+  if (/(^|\b)(planned|route|plan)\b/.test(name)) return 'planned';
+  return 'driven';
+}
+
+function rawLayersFromGeoJson(geo: any): RawLayer[] {
+  const out: RawLayer[] = [];
   for (const feature of geo.features ?? []) {
     const g = feature.geometry;
     if (!g) continue;
-    const times: string[] | undefined = feature.properties?.coordinateProperties?.times;
-    const push = (coords: number[][], base = 0) => {
-      coords.forEach((c, i) => {
+    const props = feature.properties ?? {};
+    const gpxType: string | undefined = props._gpxType;
+    const times: string[] | undefined = props.coordinateProperties?.times;
+    const kind = classifyKind(props, gpxType);
+    const name = props.name as string | undefined;
+
+    const push = (coords: number[][], base = 0): RawPoint[] =>
+      coords.map((c, i) => {
         const ts = times?.[base + i];
-        out.push({
+        return {
           lon: c[0],
           lat: c[1],
           t: ts ? Date.parse(ts) / 1000 : undefined,
-        });
+        };
       });
-    };
-    if (g.type === 'LineString') push(g.coordinates);
-    else if (g.type === 'MultiLineString') {
+
+    if (g.type === 'LineString') {
+      out.push({ kind, name, points: push(g.coordinates) });
+    } else if (g.type === 'MultiLineString') {
       let offset = 0;
+      // Each segment becomes its own layer so pose can't jump across gaps.
       for (const seg of g.coordinates) {
-        push(seg, offset);
+        out.push({ kind, name, points: push(seg, offset) });
         offset += seg.length;
       }
     }
   }
-  return out;
+  return out.filter(l => l.points.length > 0);
 }
 
-function buildTrack(raw: RawPoint[]): Track {
-  const normalized = projectLonLat(raw);
+function buildLayer(
+  raw: RawLayer,
+  projected: { x: number; y: number }[],
+): TrackLayer {
   let totalLength = 0;
-  const points: TrackPoint[] = normalized.map((p, i) => {
+  const points: TrackPoint[] = projected.map((p, i) => {
     if (i > 0) {
-      const dx = p.x - normalized[i - 1].x;
-      const dy = p.y - normalized[i - 1].y;
+      const dx = p.x - projected[i - 1].x;
+      const dy = p.y - projected[i - 1].y;
       totalLength += Math.hypot(dx, dy);
     }
     return {
       x: p.x,
       y: p.y,
       distance: totalLength,
-      t: raw[i].t,
+      t: raw.points[i].t,
     };
   });
 
@@ -57,18 +84,36 @@ function buildTrack(raw: RawPoint[]): Track {
     for (const p of points) if (p.t !== undefined) p.t -= t0;
   }
 
-  return { points, totalLength };
+  return { kind: raw.kind, name: raw.name, points, totalLength };
+}
+
+function pickPrimary(layers: TrackLayer[]): TrackLayer {
+  return (
+    layers.find(l => l.kind === 'driven') ??
+    layers.find(l => l.kind === 'planned') ??
+    layers[0]
+  );
+}
+
+function toTrack(rawLayers: RawLayer[]): Track {
+  if (rawLayers.length === 0) {
+    return { layers: [], points: [], totalLength: 0 };
+  }
+  const projectedGroups = projectLonLatLayers(rawLayers.map(l => l.points));
+  const layers = rawLayers.map((raw, i) => buildLayer(raw, projectedGroups[i]));
+  const primary = pickPrimary(layers);
+  return { layers, points: primary.points, totalLength: primary.totalLength };
 }
 
 export function parseGpx(text: string): Track {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const geo = gpx(doc);
-  return buildTrack(extractFromGeoJson(geo));
+  return toTrack(rawLayersFromGeoJson(geo));
 }
 
 export function parseGeoJson(text: string): Track {
   const geo = JSON.parse(text);
-  return buildTrack(extractFromGeoJson(geo));
+  return toTrack(rawLayersFromGeoJson(geo));
 }
 
 export interface TrackPose {
