@@ -124,6 +124,21 @@ GeoJSON 图层可以通过 `properties.kind` 或 `properties.type` 指定：
 
 GPX route 会被识别为 `planned`；普通 track 默认作为 `driven`。
 
+### GPX 路网补全
+
+`scripts/enrich-gpx-with-osm.mjs` 可以从 GPX 轨迹范围下载 OpenStreetMap 路网，并输出适配小地图的 GeoJSON：
+
+```bash
+npm run enrich:gpx -- local/activity_256997965.gpx output/gpx
+```
+
+输出文件：
+
+- `*_enriched.geojson`：推荐加载到小地图；主轨迹为 `driven`，周边 OSM 道路为 `reference`
+- `*_enriched.gpx`：保留 GPX 轨迹，并在点位扩展里写入最近 OSM 道路信息
+- `*_enriched_points.csv`：每个轨迹点匹配到的最近 OSM 道路、距离和道路标签
+- `*_osm_bbox.osm`：OSM bbox 缓存；再次运行默认复用，传 `--refresh-osm` 可重新下载
+
 ## OBD 日志转换
 
 `scripts/convert-obd-log.mjs` 可以把 OBD recorder 的长格式 CSV 转成项目遥测 CSV。

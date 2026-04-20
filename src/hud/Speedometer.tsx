@@ -130,10 +130,10 @@ export function Speedometer({ sample, unit, rpmMax }: Props) {
             <path
               d={makeArc(brakeFillStart, BRAKE_END, INNER_R)}
               fill="none"
-              stroke="rgba(255,255,255,0.92)"
+              stroke="oklch(0.62 0.2 25)"
               strokeWidth={6}
               strokeLinecap="round"
-              style={{ filter: 'drop-shadow(0 0 4px rgba(255,255,255,0.35))' }}
+              style={{ filter: 'drop-shadow(0 0 4px rgba(220,60,60,0.35))' }}
             />
           )}
 
@@ -149,10 +149,10 @@ export function Speedometer({ sample, unit, rpmMax }: Props) {
             <path
               d={makeArc(THROTTLE_START, throttleFillEnd, INNER_R)}
               fill="none"
-              stroke="oklch(0.62 0.2 25)"
+              stroke="oklch(0.72 0.16 245)"
               strokeWidth={6}
               strokeLinecap="round"
-              style={{ filter: 'drop-shadow(0 0 4px rgba(220,60,60,0.35))' }}
+              style={{ filter: 'drop-shadow(0 0 4px rgba(80,150,255,0.4))' }}
             />
           )}
 

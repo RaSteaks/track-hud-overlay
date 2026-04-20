@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react';
 import type { Track, TrackLayer, TrackPoint, TelemetrySample } from '../data/schema';
 import { poseAt } from '../data/track';
+import { shortestAngleDeltaDeg, smoothAngleDeg } from '../util/heading';
 import { Draggable } from './Draggable';
 
 interface Props {
@@ -17,6 +19,9 @@ const ANCHOR_Y = DISC * 0.68;
 // pixel radius maps to this many meters, so the visible diameter is 2×.
 const VIEW_RADIUS_M = 200;
 const M_TO_PX = RADIUS / VIEW_RADIUS_M;
+const HEADING_SMOOTHING_TIME_S = 0.35;
+const MAP_ALPHA_MASK =
+  'radial-gradient(circle at 50% 50%, #000 0%, #000 38%, rgba(0,0,0,0.74) 56%, rgba(0,0,0,0.28) 74%, transparent 96%)';
 
 // Track coords are now in meters (see util/projection.ts). toViewCoord
 // converts world meters into SVG pixels centered on the disc origin; the
@@ -79,6 +84,25 @@ function splitLayerAtTarget(
 }
 
 export function Minimap({ track, sample, currentTime, playerName }: Props) {
+  const [displayMapAngle, setDisplayMapAngle] = useState(0);
+  const headingRef = useRef<{
+    displayedDeg: number;
+    targetDeg: number;
+    dataTime: number;
+    frameTimeMs: number;
+    raf: number;
+    track: Track | null;
+    initialized: boolean;
+  }>({
+    displayedDeg: 0,
+    targetDeg: 0,
+    dataTime: 0,
+    frameTimeMs: 0,
+    raf: 0,
+    track: null,
+    initialized: false,
+  });
+
   const hasTrackTime = track?.points.length && track.points[0].t !== undefined;
   const pose = track
     ? poseAt(track, {
@@ -109,9 +133,81 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   const [mx, my] = pose ? toViewCoord(pose.x, pose.y) : [DISC / 2, DISC / 2];
   // headingRad uses atan2(dx, -dy): 0 = north (up), CW. No offset needed.
   const headingDeg = pose ? (pose.headingRad * 180) / Math.PI : 0;
+  const hasPose = !!pose;
 
   // Heading-up rotation: rotate map content so the heading points up.
-  const mapAngle = -headingDeg;
+  const targetMapAngle = -headingDeg;
+
+  useEffect(() => {
+    const headingState = headingRef.current;
+    const trackChanged = headingState.track !== track;
+    const elapsedDataTime = currentTime - headingState.dataTime;
+    const shouldSnapHeading =
+      !headingState.initialized ||
+      !hasPose ||
+      trackChanged ||
+      elapsedDataTime < 0 ||
+      elapsedDataTime > 1;
+
+    headingState.targetDeg = targetMapAngle;
+    headingState.dataTime = currentTime;
+    headingState.track = track;
+
+    const stopAnimation = () => {
+      if (headingState.raf) {
+        cancelAnimationFrame(headingState.raf);
+        headingState.raf = 0;
+      }
+    };
+
+    if (shouldSnapHeading) {
+      stopAnimation();
+      headingState.displayedDeg = targetMapAngle;
+      headingState.frameTimeMs = 0;
+      headingState.initialized = hasPose;
+      setDisplayMapAngle(targetMapAngle);
+      return;
+    }
+
+    headingState.initialized = true;
+    if (headingState.raf) return;
+
+    const animate = (nowMs: number) => {
+      const state = headingRef.current;
+      const previousFrameTime = state.frameTimeMs || nowMs;
+      const deltaTimeSec = Math.min((nowMs - previousFrameTime) / 1000, 0.1);
+      state.frameTimeMs = nowMs;
+
+      const next = smoothAngleDeg(
+        state.displayedDeg,
+        state.targetDeg,
+        deltaTimeSec,
+        HEADING_SMOOTHING_TIME_S,
+      );
+      state.displayedDeg = next;
+      setDisplayMapAngle(next);
+
+      if (Math.abs(shortestAngleDeltaDeg(next, state.targetDeg)) > 0.05) {
+        state.raf = requestAnimationFrame(animate);
+      } else {
+        state.displayedDeg = state.targetDeg;
+        state.raf = 0;
+        setDisplayMapAngle(state.targetDeg);
+      }
+    };
+
+    headingState.frameTimeMs = performance.now();
+    headingState.raf = requestAnimationFrame(animate);
+  }, [currentTime, hasPose, targetMapAngle, track]);
+
+  useEffect(() => {
+    return () => {
+      const raf = headingRef.current.raf;
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  const mapAngle = displayMapAngle;
 
   // N label — anchored to true north, sitting on the upper (far) arc.
   const N_RADIUS = DISC / 2 - 22;
@@ -173,10 +269,21 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
             height: DISC,
             borderRadius: '50%',
             overflow: 'hidden',
-            background:
-              'radial-gradient(ellipse at 50% 34%, rgba(120, 210, 210, 0.09) 0%, rgba(120, 210, 210, 0.025) 34%, rgba(120, 210, 210, 0) 60%), radial-gradient(circle at 50% 50%, rgba(10,12,14,0.38) 0%, rgba(10,12,14,0.2) 60%, rgba(10,12,14,0) 75%)',
           }}
         >
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '50%',
+              background:
+                'radial-gradient(ellipse at 50% 34%, rgba(120, 210, 210, 0.1) 0%, rgba(120, 210, 210, 0.03) 34%, rgba(120, 210, 210, 0) 62%), radial-gradient(circle at 50% 50%, rgba(10,12,14,0.42) 0%, rgba(10,12,14,0.24) 48%, rgba(10,12,14,0) 84%)',
+              WebkitMaskImage: MAP_ALPHA_MASK,
+              maskImage: MAP_ALPHA_MASK,
+              pointerEvents: 'none',
+            }}
+          />
+
           {/* outer ring */}
           <div
             style={{
@@ -184,6 +291,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
               inset: 10,
               borderRadius: '50%',
               border: '1px solid rgba(255,255,255,0.18)',
+              pointerEvents: 'none',
             }}
           />
 
@@ -199,6 +307,8 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
               inset: 0,
               transform: 'perspective(760px) rotateX(42deg)',
               transformOrigin: `50% ${(ANCHOR_Y / DISC) * 100}%`,
+              WebkitMaskImage: MAP_ALPHA_MASK,
+              maskImage: MAP_ALPHA_MASK,
             }}
           >
             <defs>

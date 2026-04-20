@@ -4,4 +4,5 @@ out
 .DS_Store
 *.log
 tsconfig.tsbuildinfo
-local/
+local
+output
