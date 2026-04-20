@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import type { TelemetrySample } from '../data/schema';
 import { convertSpeed, speedUnitLabel, clamp } from '../util/units';
 import type { SpeedUnit } from '../util/units';
@@ -10,235 +9,215 @@ interface Props {
   rpmMax: number;
 }
 
-const W = 300;
-const H = 280;
-const CX = 140;
-const CY = 140;
-const R = 185;
+const GAUGE = 340;
+const CX = GAUGE / 2;
+const CY = GAUGE / 2;
+const R = 146;
+const START_DEG = 135;
+const END_DEG = 405;
+const SWEEP = END_DEG - START_DEG;
+const BLUE_FRAC = 5500 / 8000;
+const RED_FRAC = 7000 / 8000;
 
-const START_DEG = 150;
-const END_DEG = 330;
-const SPAN_DEG = END_DEG - START_DEG;
-
-const TICK_COUNT = 8;
-const REDLINE_TICK = 7;
-
-// The arc is 180° sweeping from 150° (lower-left) over the top (270°) to
-// 330° (upper-right). Its visible bounding box is y∈[-45, 232.5], which is
-// centered around y≈94, not y=140. We place the inner ring + text overlays
-// at this visual center so they sit inside the arc instead of below it.
-const INNER_CY = 120;
-
-const ARC_CX = 1920 - W + CX; // 1760
-const INNER_CY_STAGE = 1080 - H + INNER_CY; // 894
-
-const FONT: CSSProperties = { fontFamily: "'Barlow Condensed', sans-serif" };
-
-function polar(cx: number, cy: number, r: number, deg: number) {
-  const rad = (deg * Math.PI) / 180;
-  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+function polar(deg: number): [number, number] {
+  const r = (deg * Math.PI) / 180;
+  return [CX + Math.cos(r) * R, CY + Math.sin(r) * R];
 }
 
-function describeArc(
-  cx: number,
-  cy: number,
-  r: number,
-  startDeg: number,
-  endDeg: number,
-): string {
-  const start = polar(cx, cy, r, startDeg);
-  const end = polar(cx, cy, r, endDeg);
-  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
-  const sweep = endDeg > startDeg ? 1 : 0;
-  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} ${sweep} ${end.x} ${end.y}`;
-}
-
-function stageBox(cx: number, cy: number, w: number, h: number): CSSProperties {
-  return {
-    position: 'absolute',
-    left: cx - w / 2,
-    top: cy - h / 2,
-    width: w,
-    height: h,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  };
+function makeArc(d1: number, d2: number): string {
+  const [x1, y1] = polar(d1);
+  const [x2, y2] = polar(d2);
+  const large = d2 - d1 > 180 ? 1 : 0;
+  return `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2}`;
 }
 
 export function Speedometer({ sample, unit, rpmMax }: Props) {
   const speedKmh = sample?.speedKmh ?? 0;
   const speed = convertSpeed(speedKmh, unit);
-  const speedDisplay = Math.max(0, Math.round(speed)).toString().padStart(3, '0');
+  const speedDisplay = Math.max(0, Math.round(speed)).toString();
   const gear = sample?.gear ?? 'N';
   const abs = sample?.abs ?? false;
   const tcs = sample?.tcs ?? false;
   const rpm = sample?.rpm ?? 0;
-  const rpmFrac = clamp(rpm / (sample?.rpmMax ?? rpmMax), 0, 1);
-  const rpmEnd = START_DEG + SPAN_DEG * rpmFrac;
-  const overRedline = rpmFrac > REDLINE_TICK / (TICK_COUNT - 1);
+  const maxRpm = sample?.rpmMax ?? rpmMax;
+  const rpmFrac = clamp(rpm / maxRpm, 0, 1);
 
-  const redlineStartDeg = START_DEG + (SPAN_DEG * REDLINE_TICK) / (TICK_COUNT - 1);
-  const rpmNeedleInner = polar(CX, CY, R - 6, rpmEnd);
-  const rpmNeedleOuter = polar(CX, CY, R + 10, rpmEnd);
-
-  const ticks = Array.from({ length: TICK_COUNT }, (_, i) => {
-    const deg = START_DEG + (SPAN_DEG * i) / (TICK_COUNT - 1);
-    const inner = polar(CX, CY, R - 9, deg);
-    const outer = polar(CX, CY, R + 1, deg);
-    const label = polar(CX, CY, R - 26, deg);
-    return { i, deg, inner, outer, label };
-  });
+  const blueDeg = START_DEG + SWEEP * BLUE_FRAC;
+  const redDeg = START_DEG + SWEEP * RED_FRAC;
+  const curDeg = START_DEG + SWEEP * rpmFrac;
+  const whiteEnd = Math.min(curDeg, blueDeg);
+  const [dotX, dotY] = polar(curDeg);
 
   return (
-    <>
-      <Draggable
-        id="speedo.arc"
+    <Draggable
+      id="speedo.gauge"
+      style={{
+        position: 'absolute',
+        right: 48,
+        bottom: 48,
+        width: GAUGE,
+        height: GAUGE,
+        fontFamily: 'var(--mono)',
+        filter: 'drop-shadow(0 4px 16px rgba(0,0,0,0.7))',
+      }}
+    >
+      <div
         style={{
-          position: 'absolute',
-          right: 0,
-          bottom: 0,
-          width: W,
-          height: H,
+          position: 'relative',
+          width: GAUGE,
+          height: GAUGE,
+          borderRadius: '50%',
+          background:
+            'radial-gradient(circle, rgba(10,12,14,0.88) 0%, rgba(10,12,14,0.5) 55%, rgba(10,12,14,0) 72%)',
         }}
       >
         <svg
-          viewBox={`0 0 ${W} ${H}`}
-          width={W}
-          height={H}
-          style={{ position: 'absolute', inset: 0, overflow: 'visible' }}
+          viewBox={`0 0 ${GAUGE} ${GAUGE}`}
+          width={GAUGE}
+          height={GAUGE}
+          style={{ position: 'absolute', inset: 0 }}
         >
+          <circle cx={CX} cy={CY} r={R + 16} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+          <circle cx={CX} cy={CY} r={R + 8} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+          <circle cx={CX} cy={CY} r={R - 22} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={1} />
+
+          {/* RPM background track */}
           <path
-            d={describeArc(CX, CY, R, START_DEG, END_DEG)}
+            d={makeArc(START_DEG, END_DEG)}
             fill="none"
-            stroke="rgba(255,255,255,0.38)"
-            strokeWidth={1.5}
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth={8}
           />
+          {/* Blue zone */}
           <path
-            d={describeArc(CX, CY, R, redlineStartDeg, END_DEG)}
+            d={makeArc(blueDeg, redDeg)}
             fill="none"
-            stroke="var(--hud-accent)"
-            strokeWidth={2.5}
-            strokeLinecap="round"
+            stroke="oklch(0.65 0.15 240)"
+            strokeWidth={8}
+            opacity={0.7}
           />
-          {rpmFrac > 0.001 && (
+          {/* Red zone */}
+          <path
+            d={makeArc(redDeg, END_DEG)}
+            fill="none"
+            stroke="oklch(0.55 0.22 25)"
+            strokeWidth={8}
+            opacity={0.85}
+          />
+          {/* Active white arc */}
+          {whiteEnd > START_DEG + 1 && (
             <path
-              d={describeArc(CX, CY, R, START_DEG, rpmEnd)}
+              d={makeArc(START_DEG, whiteEnd)}
               fill="none"
-              stroke={overRedline ? 'var(--hud-accent)' : '#ffffff'}
-              strokeWidth={3}
-              strokeLinecap="round"
+              stroke="rgba(255,255,255,0.9)"
+              strokeWidth={8}
+              style={{ filter: 'drop-shadow(0 0 4px rgba(255,255,255,0.3))' }}
             />
           )}
+          {/* Marker dot */}
           {rpmFrac > 0.001 && (
-            <line
-              x1={rpmNeedleInner.x}
-              y1={rpmNeedleInner.y}
-              x2={rpmNeedleOuter.x}
-              y2={rpmNeedleOuter.y}
-              stroke={overRedline ? 'var(--hud-accent)' : '#ffffff'}
-              strokeWidth={2.5}
-              strokeLinecap="round"
+            <circle
+              cx={dotX}
+              cy={dotY}
+              r={5}
+              fill="white"
+              style={{ filter: 'drop-shadow(0 0 6px white)' }}
             />
           )}
-          {ticks.map(t => (
-            <g key={t.i}>
-              <line
-                x1={t.inner.x}
-                y1={t.inner.y}
-                x2={t.outer.x}
-                y2={t.outer.y}
-                stroke={t.i >= REDLINE_TICK ? 'var(--hud-accent)' : 'rgba(255,255,255,0.55)'}
-                strokeWidth={1.25}
-              />
-              <text
-                x={t.label.x}
-                y={t.label.y}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fill={t.i >= REDLINE_TICK ? 'var(--hud-accent)' : 'rgba(255,255,255,0.75)'}
-                fontSize={13}
-                fontWeight={500}
-                style={FONT}
-              >
-                {t.i}
-              </text>
-            </g>
-          ))}
-          <circle
-            cx={CX}
-            cy={INNER_CY}
-            r={30}
-            fill="none"
-            stroke="rgba(255,255,255,0.45)"
-            strokeWidth={1}
-          />
         </svg>
-      </Draggable>
 
-      <Draggable id="speedo.gear" style={stageBox(ARC_CX, INNER_CY_STAGE, 60, 50)}>
-        <div style={{ ...FONT, fontSize: 40, color: '#fff', lineHeight: 1 }}>{gear}</div>
-      </Draggable>
-
-      <Draggable id="speedo.abs" style={stageBox(ARC_CX - 62, INNER_CY_STAGE - 6, 44, 16)}>
+        {/* Center stack */}
         <div
           style={{
-            ...FONT,
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '1.6px',
-            color: '#fff',
-            opacity: abs ? 1 : 0.35,
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
           }}
         >
-          ABS
+          <div
+            className="tnum"
+            style={{
+              fontFamily: 'var(--sans)',
+              fontWeight: 700,
+              fontSize: 32,
+              color: 'var(--ink)',
+              lineHeight: 1,
+            }}
+          >
+            {speedDisplay}
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.25em',
+              color: 'var(--ink-dim)',
+              marginTop: 3,
+            }}
+          >
+            {speedUnitLabel(unit)}
+          </div>
+          <div
+            className="tnum"
+            style={{
+              fontFamily: 'var(--sans)',
+              fontWeight: 900,
+              fontSize: 100,
+              lineHeight: 0.85,
+              color: 'var(--ink)',
+              marginTop: 6,
+              textShadow: '0 2px 10px rgba(0,0,0,0.8)',
+            }}
+          >
+            {gear}
+          </div>
+          <div
+            className="tnum"
+            style={{
+              fontFamily: 'var(--sans)',
+              fontWeight: 700,
+              fontSize: 30,
+              color: 'var(--ink)',
+              lineHeight: 1,
+              marginTop: 8,
+            }}
+          >
+            {Math.round(rpm)}
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: '0.25em',
+              color: 'var(--ink-dim)',
+              marginTop: 3,
+            }}
+          >
+            RPM
+          </div>
         </div>
-      </Draggable>
 
-      <Draggable id="speedo.tcr" style={stageBox(ARC_CX - 62, INNER_CY_STAGE + 8, 44, 16)}>
+        {/* Assist badges */}
         <div
           style={{
-            ...FONT,
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: '1.6px',
-            color: '#fff',
-            opacity: tcs ? 1 : 0.35,
+            position: 'absolute',
+            bottom: 58,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            gap: 14,
+            fontSize: 10,
+            letterSpacing: '0.18em',
+            textTransform: 'uppercase',
           }}
         >
-          TCR
+          <span style={{ color: abs ? 'var(--teal)' : 'var(--ink-faint)' }}>ABS</span>
+          <span style={{ color: tcs ? 'var(--teal)' : 'var(--ink-faint)' }}>TCR</span>
+          <span style={{ color: 'var(--ink-faint)' }}>ESP</span>
         </div>
-      </Draggable>
-
-      <Draggable id="speedo.unit" style={stageBox(ARC_CX + 62, INNER_CY_STAGE + 1, 44, 16)}>
-        <div
-          style={{
-            ...FONT,
-            fontSize: 13,
-            fontWeight: 500,
-            letterSpacing: '1.1px',
-            color: '#fff',
-            opacity: 0.85,
-          }}
-        >
-          {speedUnitLabel(unit)}
-        </div>
-      </Draggable>
-
-      <Draggable id="speedo.speed" style={stageBox(ARC_CX, INNER_CY_STAGE + 90, 200, 80)}>
-        <div
-          style={{
-            ...FONT,
-            fontSize: 78,
-            fontWeight: 300,
-            color: '#fff',
-            lineHeight: 1,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          {speedDisplay}
-        </div>
-      </Draggable>
-    </>
+      </div>
+    </Draggable>
   );
 }

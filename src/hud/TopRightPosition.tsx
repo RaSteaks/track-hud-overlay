@@ -6,26 +6,70 @@ interface Props {
 }
 
 export function TopRightPosition({ sample }: Props) {
-  const cur = sample?.positionCurrent ?? 1;
+  const cur = sample?.positionCurrent ?? 10;
   const tot = sample?.positionTotal ?? 12;
+
+  const pips = Array.from({ length: tot }, (_, i) => {
+    const rank = i + 1;
+    if (rank === cur) return 'me' as const;
+    if (rank < cur) return 'ahead' as const;
+    return 'behind' as const;
+  });
+
   return (
     <Draggable
-      id="topRight"
+      id="topRight.position"
       style={{
         position: 'absolute',
-        right: '2.5%',
-        top: '4%',
+        top: 36,
+        right: 48,
         display: 'flex',
-        alignItems: 'baseline',
-        gap: 10,
+        flexDirection: 'column',
+        alignItems: 'flex-end',
+        gap: 6,
+        filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.55))',
       }}
     >
-      <span style={{ fontSize: 14, letterSpacing: '0.22em', opacity: 0.75 }}>POSITION</span>
-      <span style={{ fontSize: 44, fontWeight: 400, lineHeight: 1 }}>
-        {cur}
-        <span style={{ opacity: 0.6, margin: '0 2px' }}>/</span>
-        {tot}
-      </span>
+      <div className="label">Grid Position</div>
+      <div
+        className="tnum"
+        style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}
+      >
+        <span
+          style={{
+            fontSize: 72,
+            fontWeight: 900,
+            lineHeight: 0.9,
+            color: 'var(--amber)',
+          }}
+        >
+          {cur}
+        </span>
+        <span
+          className="mono"
+          style={{ fontSize: 20, color: 'var(--ink-dim)' }}
+        >
+          / {tot}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 3, marginTop: 4 }}>
+        {pips.map((k, i) => (
+          <span
+            key={i}
+            style={{
+              width: 14,
+              height: 4,
+              background:
+                k === 'me'
+                  ? 'var(--amber)'
+                  : k === 'ahead'
+                    ? 'rgba(255,255,255,0.45)'
+                    : 'rgba(255,255,255,0.2)',
+              boxShadow: k === 'me' ? '0 0 8px var(--amber-dim)' : 'none',
+            }}
+          />
+        ))}
+      </div>
     </Draggable>
   );
 }

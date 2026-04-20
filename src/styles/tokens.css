@@ -1,23 +1,33 @@
 :root {
-  --hud-fg: #ffffff;
-  --hud-fg-dim: rgba(255, 255, 255, 0.55);
-  --hud-fg-faint: rgba(255, 255, 255, 0.28);
-  --hud-accent: #ff3838;
-  --hud-accent-soft: #ff6a3d;
-  --hud-track-a: #4ad6ff;
-  --hud-track-b: #ff3b5c;
-  --hud-panel-bg: rgba(12, 14, 20, 0.45);
-  --hud-panel-stroke: rgba(255, 255, 255, 0.35);
-  --hud-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  --amber: oklch(0.82 0.14 75);
+  --amber-dim: oklch(0.82 0.14 75 / 0.55);
+  --teal: oklch(0.78 0.11 195);
+  --teal-dim: oklch(0.78 0.11 195 / 0.55);
+  --ink: oklch(0.97 0.01 90);
+  --ink-dim: oklch(0.97 0.01 90 / 0.6);
+  --ink-faint: oklch(0.97 0.01 90 / 0.3);
+  --panel: rgba(10, 10, 11, 0.55);
+  --panel-stroke: rgba(255, 255, 255, 0.12);
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  --sans: 'Archivo', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 .hud-root {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  font-family: 'Barlow Condensed', system-ui, sans-serif;
-  color: var(--hud-fg);
-  text-shadow: var(--hud-shadow);
-  letter-spacing: 0.02em;
+  font-family: var(--sans);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
+}
+
+.hud-root .mono { font-family: var(--mono); }
+.hud-root .tnum { font-variant-numeric: tabular-nums; }
+.hud-root .label {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }

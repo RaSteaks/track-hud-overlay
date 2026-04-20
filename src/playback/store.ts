@@ -4,34 +4,22 @@ import type { SpeedUnit } from '../util/units';
 
 export type WidgetId =
   | 'topLeft.progress'
-  | 'topLeft.time'
-  | 'topRight'
-  | 'minimap.map'
+  | 'topRight.position'
+  | 'minimap.disc'
   | 'minimap.name'
-  | 'speedo.arc'
-  | 'speedo.gear'
-  | 'speedo.abs'
-  | 'speedo.tcr'
-  | 'speedo.unit'
-  | 'speedo.speed';
+  | 'speedo.gauge';
 
 export type Layout = Record<WidgetId, { x: number; y: number }>;
 
 const DEFAULT_LAYOUT: Layout = {
   'topLeft.progress': { x: 0, y: 0 },
-  'topLeft.time': { x: 0, y: 0 },
-  'topRight': { x: 0, y: 0 },
-  'minimap.map': { x: 0, y: 192 },
-  'minimap.name': { x: 0, y: 192 },
-  'speedo.arc': { x: -44, y: -50 },
-  'speedo.gear': { x: -44, y: -53 },
-  'speedo.abs': { x: -50, y: -62 },
-  'speedo.tcr': { x: -51, y: -50 },
-  'speedo.unit': { x: -46, y: -53 },
-  'speedo.speed': { x: -45, y: -59 },
+  'topRight.position': { x: 0, y: 0 },
+  'minimap.disc': { x: 0, y: 0 },
+  'minimap.name': { x: 0, y: 0 },
+  'speedo.gauge': { x: 0, y: 0 },
 };
 
-const LAYOUT_KEY = 'hud5.layout.v3';
+const LAYOUT_KEY = 'hud5.layout.v4';
 
 function loadLayout(): Layout {
   try {

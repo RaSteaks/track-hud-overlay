@@ -9,6 +9,29 @@ import { TopRightPosition } from './TopRightPosition';
 const STAGE_W = 1920;
 const STAGE_H = 1080;
 
+const BRACKET_SIZE = 34;
+const BRACKET_INSET = 24;
+const BRACKET_BORDER = '1px solid var(--ink-faint)';
+
+function bracket(pos: 'tl' | 'tr' | 'bl' | 'br'): React.CSSProperties {
+  const base: React.CSSProperties = {
+    position: 'absolute',
+    width: BRACKET_SIZE,
+    height: BRACKET_SIZE,
+    pointerEvents: 'none',
+  };
+  switch (pos) {
+    case 'tl':
+      return { ...base, top: BRACKET_INSET, left: BRACKET_INSET, borderTop: BRACKET_BORDER, borderLeft: BRACKET_BORDER };
+    case 'tr':
+      return { ...base, top: BRACKET_INSET, right: BRACKET_INSET, borderTop: BRACKET_BORDER, borderRight: BRACKET_BORDER };
+    case 'bl':
+      return { ...base, bottom: BRACKET_INSET, left: BRACKET_INSET, borderBottom: BRACKET_BORDER, borderLeft: BRACKET_BORDER };
+    case 'br':
+      return { ...base, bottom: BRACKET_INSET, right: BRACKET_INSET, borderBottom: BRACKET_BORDER, borderRight: BRACKET_BORDER };
+  }
+}
+
 export function Hud() {
   const telemetry = usePlayback(s => s.telemetry);
   const track = usePlayback(s => s.track);
@@ -64,6 +87,11 @@ export function Hud() {
           transformOrigin: 'center center',
         }}
       >
+        <div style={bracket('tl')} />
+        <div style={bracket('tr')} />
+        <div style={bracket('bl')} />
+        <div style={bracket('br')} />
+
         <TopLeftStatus sample={sample} currentTime={currentTime} />
         <TopRightPosition sample={sample} />
         <Minimap

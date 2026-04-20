@@ -9,12 +9,12 @@ interface Props {
   playerName: string;
 }
 
-const VIEW = 200;
-const RADIUS = VIEW / 2 - 6;
+const DISC = 240;
+const RADIUS = DISC / 2 - 12;
 const PADDING = 0.82;
 
 function toViewCoord(x: number, y: number): [number, number] {
-  return [VIEW / 2 + x * RADIUS * PADDING, VIEW / 2 + y * RADIUS * PADDING];
+  return [DISC / 2 + x * RADIUS * PADDING, DISC / 2 + y * RADIUS * PADDING];
 }
 
 export function Minimap({ track, sample, currentTime, playerName }: Props) {
@@ -26,7 +26,10 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
       })
     : null;
 
-  const pathD = track
+  const progressFrac = Math.max(0, Math.min(1, sample?.progress ?? 0));
+  const traversedCount = track ? Math.max(1, Math.floor(track.points.length * progressFrac)) : 0;
+
+  const fullPath = track
     ? track.points
         .map((p, i) => {
           const [vx, vy] = toViewCoord(p.x, p.y);
@@ -35,93 +38,222 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
         .join(' ')
     : '';
 
-  const [mx, my] = pose ? toViewCoord(pose.x, pose.y) : [VIEW / 2, VIEW / 2];
+  const traversedPath = track
+    ? track.points
+        .slice(0, traversedCount)
+        .map((p, i) => {
+          const [vx, vy] = toViewCoord(p.x, p.y);
+          return `${i === 0 ? 'M' : 'L'} ${vx.toFixed(2)} ${vy.toFixed(2)}`;
+        })
+        .join(' ')
+    : '';
+
+  const [mx, my] = pose ? toViewCoord(pose.x, pose.y) : [DISC / 2, DISC / 2];
+  // headingRad uses atan2(dx, -dy): 0 = north (up), CW. No offset needed.
   const headingDeg = pose ? (pose.headingRad * 180) / Math.PI : 0;
+
+  // Heading-up rotation: rotate map content so the heading points up.
+  const mapAngle = -headingDeg;
+
+  // N label — anchored to true north. In the rotated map, world-north
+  // direction from center is (sin(mapAngle), -cos(mapAngle)).
+  const N_RADIUS = DISC / 2 - 22;
+  const mapAngleRad = (mapAngle * Math.PI) / 180;
+  const nx = DISC / 2 + Math.sin(mapAngleRad) * N_RADIUS;
+  const ny = DISC / 2 - Math.cos(mapAngleRad) * N_RADIUS;
+
+  const trackLenKm = track
+    ? (() => {
+        let total = 0;
+        for (let i = 1; i < track.points.length; i++) {
+          const dx = track.points[i].x - track.points[i - 1].x;
+          const dy = track.points[i].y - track.points[i - 1].y;
+          total += Math.hypot(dx, dy);
+        }
+        return total;
+      })()
+    : 0;
+
+  const distLabel = track ? `${(trackLenKm * 1.2).toFixed(1)} KM` : '— KM';
+  const finish =
+    track && track.points.length
+      ? toViewCoord(
+          track.points[track.points.length - 1].x,
+          track.points[track.points.length - 1].y,
+        )
+      : null;
+  const elapsedSec = Math.floor(currentTime);
+  const alt = 412 + Math.round(Math.sin(elapsedSec / 30) * 18);
 
   return (
     <>
       <Draggable
-        id="minimap.map"
-        style={{ position: 'absolute', left: 48, bottom: 300, width: VIEW, height: VIEW }}
+        id="minimap.disc"
+        style={{
+          position: 'absolute',
+          left: 48,
+          bottom: 56,
+          width: DISC,
+          filter: 'drop-shadow(0 2px 10px rgba(0,0,0,0.6))',
+          fontFamily: 'var(--mono)',
+        }}
       >
-        <svg
-          viewBox={`0 0 ${VIEW} ${VIEW}`}
-          width={VIEW}
-          height={VIEW}
-          style={{ display: 'block' }}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            fontSize: 10,
+            letterSpacing: '0.22em',
+            color: 'var(--ink-dim)',
+            textTransform: 'uppercase',
+            marginBottom: 8,
+          }}
         >
-          <defs>
-            <linearGradient id="trackGrad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="var(--hud-track-a)" />
-              <stop offset="100%" stopColor="var(--hud-track-b)" />
-            </linearGradient>
-          </defs>
-          <circle
-            cx={VIEW / 2}
-            cy={VIEW / 2}
-            r={RADIUS}
-            fill="rgba(12,14,20,0.55)"
-            stroke="rgba(255,255,255,0.5)"
-            strokeWidth={1.5}
+          <span>ROUTE · TRACK</span>
+          <span>{distLabel}</span>
+        </div>
+        <div
+          style={{
+            position: 'relative',
+            width: DISC,
+            height: DISC,
+            borderRadius: '50%',
+            background:
+              'radial-gradient(circle at 50% 50%, rgba(10,12,14,0.75) 0%, rgba(10,12,14,0.4) 60%, rgba(10,12,14,0) 75%)',
+          }}
+        >
+          {/* outer ring */}
+          <div
+            style={{
+              position: 'absolute',
+              inset: 10,
+              borderRadius: '50%',
+              border: '1px solid rgba(255,255,255,0.18)',
+            }}
           />
-          {track && (
-            <path
-              d={pathD}
-              fill="none"
-              stroke="url(#trackGrad)"
-              strokeWidth={3}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-          {pose && (
-            <g transform={`translate(${mx} ${my}) rotate(${headingDeg})`}>
-              <circle r={6} fill="#fff" />
-              <path d="M 0 -9 L 5 2 L 0 0 L -5 2 Z" fill="#111" />
-            </g>
-          )}
-          <text
-            x={VIEW / 2}
-            y={16}
-            textAnchor="middle"
-            fill="rgba(255,255,255,0.85)"
-            fontSize={14}
-            fontWeight={600}
-            style={{ letterSpacing: '0.1em' }}
+
+          <svg
+            viewBox={`0 0 ${DISC} ${DISC}`}
+            width={DISC}
+            height={DISC}
+            style={{ position: 'absolute', inset: 0 }}
           >
-            N
-          </text>
-        </svg>
+            <defs>
+              <radialGradient id="mm-fade" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="#fff" stopOpacity="1" />
+                <stop offset="55%" stopColor="#fff" stopOpacity="1" />
+                <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+              </radialGradient>
+              <mask id="mm-mask" maskUnits="userSpaceOnUse" x="0" y="0" width={DISC} height={DISC}>
+                <rect width={DISC} height={DISC} fill="url(#mm-fade)" />
+              </mask>
+            </defs>
+
+            {track && (
+              <g mask="url(#mm-mask)">
+                <g
+                  transform={`translate(${DISC / 2} ${DISC / 2}) rotate(${mapAngle}) translate(${-mx} ${-my})`}
+                >
+                  <path
+                    d={fullPath}
+                    fill="none"
+                    stroke="var(--teal)"
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.85}
+                  />
+                  {traversedCount > 1 && (
+                    <path
+                      d={traversedPath}
+                      fill="none"
+                      stroke="var(--amber)"
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  )}
+                  {finish && (
+                    <>
+                      <circle
+                        cx={finish[0]}
+                        cy={finish[1]}
+                        r={4}
+                        fill="none"
+                        stroke="var(--ink)"
+                        strokeWidth={1.5}
+                      />
+                      <circle cx={finish[0]} cy={finish[1]} r={1.5} fill="var(--ink)" />
+                    </>
+                  )}
+                </g>
+              </g>
+            )}
+
+            {/* Car arrow — always points up at disc center */}
+            {pose && (
+              <g transform={`translate(${DISC / 2} ${DISC / 2})`}>
+                <polygon
+                  points="0,-11 8,9 0,3 -8,9"
+                  fill="var(--amber)"
+                  style={{ filter: 'drop-shadow(0 0 6px var(--amber-dim))' }}
+                />
+              </g>
+            )}
+
+            {/* North label — rotates to stay anchored to true north */}
+            <text
+              x={nx}
+              y={ny}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fill="var(--amber)"
+              fontFamily="var(--mono)"
+              fontSize={11}
+              fontWeight={700}
+              letterSpacing="0.15em"
+            >
+              N
+            </text>
+          </svg>
+        </div>
       </Draggable>
 
       <Draggable
         id="minimap.name"
-        style={{ position: 'absolute', left: 48, bottom: 260 }}
+        style={{
+          position: 'absolute',
+          left: 48,
+          bottom: 24,
+          width: DISC,
+          fontFamily: 'var(--mono)',
+          filter: 'drop-shadow(0 2px 10px rgba(0,0,0,0.6))',
+        }}
       >
         <div
           style={{
-            display: 'inline-flex',
+            display: 'flex',
+            justifyContent: 'space-between',
             alignItems: 'center',
-            gap: 8,
-            padding: '4px 12px',
-            borderRadius: 999,
-            background: 'rgba(12,14,20,0.55)',
-            border: '1px solid rgba(255,255,255,0.35)',
-            fontSize: 16,
-            fontWeight: 500,
-            letterSpacing: '0.08em',
+            fontSize: 10,
+            letterSpacing: '0.2em',
+            color: 'var(--ink-dim)',
+            textTransform: 'uppercase',
           }}
         >
           <span
             style={{
-              width: 14,
-              height: 14,
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.25)',
-              display: 'inline-block',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              color: 'var(--ink)',
             }}
-          />
-          {playerName}
+          >
+            <span style={{ width: 8, height: 8, background: 'var(--amber)' }} />
+            {playerName} · P{sample?.positionCurrent ?? '—'}
+          </span>
+          <span>ALT · {alt}m</span>
         </div>
       </Draggable>
     </>
