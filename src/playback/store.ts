@@ -55,9 +55,23 @@ interface PlaybackState {
   videoUrl: string | null;
   videoAspect: number;
   videoDuration: number;
+  videoWidth: number;
+  videoHeight: number;
+  previewAspect: number | null;
+  projectFps: number;
+  projectDuration: number | null;
 
+  setPreviewAspect(a: number | null): void;
+  setProjectFps(fps: number): void;
+  setProjectDuration(d: number | null): void;
   setTelemetry(t: TelemetryTrack | null): void;
-  setVideo(url: string | null, aspect: number, duration: number): void;
+  setVideo(
+    url: string | null,
+    aspect: number,
+    duration: number,
+    width?: number,
+    height?: number,
+  ): void;
   setTrack(t: Track | null): void;
   setProfile(p: Partial<PlayerProfile>): void;
   setUnit(u: SpeedUnit): void;
@@ -89,12 +103,28 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
   videoUrl: null,
   videoAspect: 16 / 9,
   videoDuration: 0,
+  videoWidth: 0,
+  videoHeight: 0,
+  previewAspect: null,
+  projectFps: 60,
+  projectDuration: null,
 
+  setPreviewAspect: a => set({ previewAspect: a }),
+  setProjectFps: fps => set({ projectFps: fps > 0 ? fps : 60 }),
+  setProjectDuration: d => set({ projectDuration: d !== null && d > 0 ? d : null }),
   setTelemetry: t => set({ telemetry: t, currentTime: 0, playing: false }),
-  setVideo: (url, aspect, duration) => {
+  setVideo: (url, aspect, duration, width = 0, height = 0) => {
     const prev = get().videoUrl;
     if (prev) URL.revokeObjectURL(prev);
-    set({ videoUrl: url, videoAspect: aspect, videoDuration: duration, currentTime: 0, playing: false });
+    set({
+      videoUrl: url,
+      videoAspect: aspect,
+      videoDuration: duration,
+      videoWidth: width,
+      videoHeight: height,
+      currentTime: 0,
+      playing: false,
+    });
   },
   setTrack: t => set({ track: t }),
   setProfile: p => set(s => ({ profile: { ...s.profile, ...p } })),
