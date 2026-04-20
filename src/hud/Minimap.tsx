@@ -55,8 +55,11 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   // Heading-up rotation: rotate map content so the heading points up.
   const mapAngle = -headingDeg;
 
-  // N label — anchored to true north. In the rotated map, world-north
-  // direction from center is (sin(mapAngle), -cos(mapAngle)).
+  // Car anchor — placed below center so the tilted ground plane shows
+  // more of what's ahead than behind.
+  const ANCHOR_Y = DISC * 0.68;
+
+  // N label — anchored to true north, sitting on the upper (far) arc.
   const N_RADIUS = DISC / 2 - 22;
   const mapAngleRad = (mapAngle * Math.PI) / 180;
   const nx = DISC / 2 + Math.sin(mapAngleRad) * N_RADIUS;
@@ -120,7 +123,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
             height: DISC,
             borderRadius: '50%',
             background:
-              'radial-gradient(circle at 50% 50%, rgba(10,12,14,0.75) 0%, rgba(10,12,14,0.4) 60%, rgba(10,12,14,0) 75%)',
+              'radial-gradient(circle at 50% 50%, rgba(10,12,14,0.35) 0%, rgba(10,12,14,0.18) 60%, rgba(10,12,14,0) 75%)',
           }}
         >
           {/* outer ring */}
@@ -133,14 +136,27 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
             }}
           />
 
+          {/* Tilted ground plane — track + fade mask. CSS 3D perspective
+              gives the map depth; transform-origin at the car anchor keeps
+              the near edge locked while the far edge recedes. */}
           <svg
             viewBox={`0 0 ${DISC} ${DISC}`}
             width={DISC}
             height={DISC}
-            style={{ position: 'absolute', inset: 0 }}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              transform: 'perspective(520px) rotateX(55deg)',
+              transformOrigin: `50% ${(ANCHOR_Y / DISC) * 100}%`,
+            }}
           >
             <defs>
-              <radialGradient id="mm-fade" cx="50%" cy="50%" r="50%">
+              <radialGradient
+                id="mm-fade"
+                cx="50%"
+                cy={`${(ANCHOR_Y / DISC) * 100}%`}
+                r="50%"
+              >
                 <stop offset="0%" stopColor="#fff" stopOpacity="1" />
                 <stop offset="55%" stopColor="#fff" stopOpacity="1" />
                 <stop offset="100%" stopColor="#fff" stopOpacity="0" />
@@ -153,13 +169,13 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
             {track && (
               <g mask="url(#mm-mask)">
                 <g
-                  transform={`translate(${DISC / 2} ${DISC / 2}) rotate(${mapAngle}) translate(${-mx} ${-my})`}
+                  transform={`translate(${DISC / 2} ${ANCHOR_Y}) rotate(${mapAngle}) translate(${-mx} ${-my})`}
                 >
                   <path
                     d={fullPath}
                     fill="none"
                     stroke="var(--teal)"
-                    strokeWidth={2.5}
+                    strokeWidth={8}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     opacity={0.85}
@@ -169,7 +185,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
                       d={traversedPath}
                       fill="none"
                       stroke="var(--amber)"
-                      strokeWidth={2.5}
+                      strokeWidth={8}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
@@ -190,19 +206,25 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
                 </g>
               </g>
             )}
+          </svg>
 
-            {/* Car arrow — always points up at disc center */}
+          {/* Overlay — car arrow + N label, untilted on top of the plane */}
+          <svg
+            viewBox={`0 0 ${DISC} ${DISC}`}
+            width={DISC}
+            height={DISC}
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+          >
             {pose && (
-              <g transform={`translate(${DISC / 2} ${DISC / 2})`}>
+              <g transform={`translate(${DISC / 2} ${ANCHOR_Y})`}>
                 <polygon
                   points="0,-11 8,9 0,3 -8,9"
-                  fill="var(--amber)"
-                  style={{ filter: 'drop-shadow(0 0 6px var(--amber-dim))' }}
+                  fill="var(--ink)"
+                  style={{ filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.6))' }}
                 />
               </g>
             )}
 
-            {/* North label — rotates to stay anchored to true north */}
             <text
               x={nx}
               y={ny}

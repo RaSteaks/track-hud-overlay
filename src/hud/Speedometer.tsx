@@ -16,19 +16,24 @@ const R = 146;
 const START_DEG = 135;
 const END_DEG = 405;
 const SWEEP = END_DEG - START_DEG;
-const BLUE_FRAC = 5500 / 8000;
 const RED_FRAC = 7000 / 8000;
 
-function polar(deg: number): [number, number] {
+const INNER_R = 108;
+const BRAKE_START = 150;
+const BRAKE_END = 220;
+const THROTTLE_START = 320;
+const THROTTLE_END = 390;
+
+function polar(deg: number, radius = R): [number, number] {
   const r = (deg * Math.PI) / 180;
-  return [CX + Math.cos(r) * R, CY + Math.sin(r) * R];
+  return [CX + Math.cos(r) * radius, CY + Math.sin(r) * radius];
 }
 
-function makeArc(d1: number, d2: number): string {
-  const [x1, y1] = polar(d1);
-  const [x2, y2] = polar(d2);
+function makeArc(d1: number, d2: number, radius = R): string {
+  const [x1, y1] = polar(d1, radius);
+  const [x2, y2] = polar(d2, radius);
   const large = d2 - d1 > 180 ? 1 : 0;
-  return `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2}`;
+  return `M ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2}`;
 }
 
 export function Speedometer({ sample, unit, rpmMax }: Props) {
@@ -38,15 +43,22 @@ export function Speedometer({ sample, unit, rpmMax }: Props) {
   const gear = sample?.gear ?? 'N';
   const abs = sample?.abs ?? false;
   const tcs = sample?.tcs ?? false;
+  const throttle = clamp(sample?.throttle ?? 0, 0, 1);
+  const brake = clamp(sample?.brake ?? 0, 0, 1);
   const rpm = sample?.rpm ?? 0;
   const maxRpm = sample?.rpmMax ?? rpmMax;
   const rpmFrac = clamp(rpm / maxRpm, 0, 1);
 
-  const blueDeg = START_DEG + SWEEP * BLUE_FRAC;
   const redDeg = START_DEG + SWEEP * RED_FRAC;
   const curDeg = START_DEG + SWEEP * rpmFrac;
-  const whiteEnd = Math.min(curDeg, blueDeg);
+  const whiteEnd = Math.min(curDeg, redDeg);
   const [dotX, dotY] = polar(curDeg);
+
+  // Inner arcs fill from the bottom end toward the top end as value grows.
+  const brakeSweep = BRAKE_END - BRAKE_START;
+  const brakeFillStart = BRAKE_END - brakeSweep * brake;
+  const throttleSweep = THROTTLE_END - THROTTLE_START;
+  const throttleFillEnd = THROTTLE_START + throttleSweep * throttle;
 
   return (
     <Draggable
@@ -68,7 +80,7 @@ export function Speedometer({ sample, unit, rpmMax }: Props) {
           height: GAUGE,
           borderRadius: '50%',
           background:
-            'radial-gradient(circle, rgba(10,12,14,0.88) 0%, rgba(10,12,14,0.5) 55%, rgba(10,12,14,0) 72%)',
+            'radial-gradient(circle, rgba(10,12,14,0.4) 0%, rgba(10,12,14,0.2) 55%, rgba(10,12,14,0) 72%)',
         }}
       >
         <svg
@@ -88,14 +100,6 @@ export function Speedometer({ sample, unit, rpmMax }: Props) {
             stroke="rgba(255,255,255,0.08)"
             strokeWidth={8}
           />
-          {/* Blue zone */}
-          <path
-            d={makeArc(blueDeg, redDeg)}
-            fill="none"
-            stroke="oklch(0.65 0.15 240)"
-            strokeWidth={8}
-            opacity={0.7}
-          />
           {/* Red zone */}
           <path
             d={makeArc(redDeg, END_DEG)}
@@ -114,6 +118,44 @@ export function Speedometer({ sample, unit, rpmMax }: Props) {
               style={{ filter: 'drop-shadow(0 0 4px rgba(255,255,255,0.3))' }}
             />
           )}
+          {/* Inner brake arc (left) */}
+          <path
+            d={makeArc(BRAKE_START, BRAKE_END, INNER_R)}
+            fill="none"
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth={6}
+            strokeLinecap="round"
+          />
+          {brake > 0.001 && (
+            <path
+              d={makeArc(brakeFillStart, BRAKE_END, INNER_R)}
+              fill="none"
+              stroke="rgba(255,255,255,0.92)"
+              strokeWidth={6}
+              strokeLinecap="round"
+              style={{ filter: 'drop-shadow(0 0 4px rgba(255,255,255,0.35))' }}
+            />
+          )}
+
+          {/* Inner throttle arc (right) */}
+          <path
+            d={makeArc(THROTTLE_START, THROTTLE_END, INNER_R)}
+            fill="none"
+            stroke="rgba(255,255,255,0.1)"
+            strokeWidth={6}
+            strokeLinecap="round"
+          />
+          {throttle > 0.001 && (
+            <path
+              d={makeArc(THROTTLE_START, throttleFillEnd, INNER_R)}
+              fill="none"
+              stroke="oklch(0.62 0.2 25)"
+              strokeWidth={6}
+              strokeLinecap="round"
+              style={{ filter: 'drop-shadow(0 0 4px rgba(220,60,60,0.35))' }}
+            />
+          )}
+
           {/* Marker dot */}
           {rpmFrac > 0.001 && (
             <circle
