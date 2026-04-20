@@ -1,0 +1,23 @@
+:root {
+  --hud-fg: #ffffff;
+  --hud-fg-dim: rgba(255, 255, 255, 0.55);
+  --hud-fg-faint: rgba(255, 255, 255, 0.28);
+  --hud-accent: #ff3838;
+  --hud-accent-soft: #ff6a3d;
+  --hud-track-a: #4ad6ff;
+  --hud-track-b: #ff3b5c;
+  --hud-panel-bg: rgba(12, 14, 20, 0.45);
+  --hud-panel-stroke: rgba(255, 255, 255, 0.35);
+  --hud-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+}
+
+.hud-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: 'Barlow Condensed', system-ui, sans-serif;
+  color: var(--hud-fg);
+  text-shadow: var(--hud-shadow);
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: antialiased;
+}
