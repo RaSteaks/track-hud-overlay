@@ -3,7 +3,6 @@ import { Hud } from './hud/Hud';
 import { usePlayback, startPlaybackLoop } from './playback/store';
 import { parseTelemetryCsv, parseTelemetryJson } from './data/telemetry';
 import { parseGpx, parseGeoJson } from './data/track';
-import { enrichGpxWithOsm } from './data/gpxEnrichment';
 import type { SpeedUnit } from './util/units';
 
 async function loadTelemetryFromUrl(url: string) {
@@ -192,10 +191,32 @@ export function App() {
     setError(null);
     setEnrichingTrack(true);
     try {
-      const { geoJson } = await enrichGpxWithOsm(gpxSource.text);
+      const res = await fetch('/api/enrich-gpx', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inputName: gpxSource.name,
+          gpxText: gpxSource.text,
+        }),
+      });
+      const contentType = res.headers.get('content-type') ?? '';
+      const raw = await res.text();
+      if (!contentType.includes('application/json')) {
+        throw new Error('本地补全 API 未启用，请重启 npm run dev 后再试。');
+      }
+      const data = JSON.parse(raw);
+      if (!res.ok) throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+      const geoJson = data.geoJson;
       usePlayback.getState().setTrack(parseGeoJson(JSON.stringify(geoJson)));
     } catch (e) {
-      setError(`GPX 路网补全失败：${e instanceof Error ? e.message : String(e)}`);
+      const message = e instanceof Error ? e.message : String(e);
+      setError(
+        `GPX 路网补全失败：${
+          message === 'The string did not match the expected pattern.'
+            ? '本地补全 API 未启用，请重启 npm run dev 后再试。'
+            : message
+        }`,
+      );
     } finally {
       setEnrichingTrack(false);
     }

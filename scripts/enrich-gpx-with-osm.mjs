@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Enrich a GPX track with nearby OpenStreetMap roads for the HUD minimap.
 // Outputs:
 //   *_enriched.geojson        Project-ready track + reference road layers
@@ -30,6 +29,7 @@ const ROAD_TAGS = [
 ];
 
 const OSM_ENRICH_NS = 'https://openai.com/codex/osm-enrichment/1';
+const OSM_TILE_SIZE_DEG = 0.08;
 
 function usage() {
   console.error(
@@ -49,7 +49,7 @@ function parseArgs(argv) {
   );
   return {
     input: positional[0],
-    outDir: positional[1] ?? path.join('output', 'gpx'),
+    outDir: positional[1] ?? 'output',
     marginDeg: flags['margin-deg'] === undefined ? 0.001 : Number(flags['margin-deg']),
     refreshOsm: flags['refresh-osm'] === true,
   };
@@ -120,23 +120,77 @@ function bboxForPoints(points, marginDeg) {
   ];
 }
 
-async function loadOsmXml(bbox, cachePath, refreshOsm) {
-  const sourceUrl =
+function osmMapUrl(bbox) {
+  return (
     'https://api.openstreetmap.org/api/0.6/map?' +
-    new URLSearchParams({ bbox: bbox.map(v => v.toFixed(7)).join(',') }).toString();
+    new URLSearchParams({ bbox: bbox.map(v => v.toFixed(7)).join(',') }).toString()
+  );
+}
+
+export function splitBbox(bbox, tileSizeDeg = OSM_TILE_SIZE_DEG) {
+  const [minLon, minLat, maxLon, maxLat] = bbox;
+  const tiles = [];
+  for (let west = minLon; west < maxLon; west += tileSizeDeg) {
+    const east = Math.min(west + tileSizeDeg, maxLon);
+    for (let south = minLat; south < maxLat; south += tileSizeDeg) {
+      const north = Math.min(south + tileSizeDeg, maxLat);
+      tiles.push([west, south, east, north]);
+    }
+  }
+  return tiles;
+}
+
+async function fetchOsmTile(bbox) {
+  const sourceUrl = osmMapUrl(bbox);
+  const res = await fetch(sourceUrl, {
+    headers: { 'User-Agent': 'hud5-overlay GPX OSM enrichment script' },
+  });
+  if (!res.ok) throw new Error(`OSM download failed: ${res.status} ${res.statusText}`);
+  return res.text();
+}
+
+async function loadOsmXml(bbox, cachePath, refreshOsm) {
+  const sourceUrl = osmMapUrl(bbox);
 
   if (fs.existsSync(cachePath) && !refreshOsm) {
     return { xml: fs.readFileSync(cachePath, 'utf8'), sourceUrl, downloaded: false };
   }
 
-  const res = await fetch(sourceUrl, {
-    headers: { 'User-Agent': 'hud5-overlay GPX OSM enrichment script' },
-  });
-  if (!res.ok) throw new Error(`OSM download failed: ${res.status} ${res.statusText}`);
-  const xml = await res.text();
+  const tiles = splitBbox(bbox);
+  const xmlParts = [];
+  for (const tile of tiles) {
+    try {
+      xmlParts.push(await fetchOsmTile(tile));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('400') || tile[2] - tile[0] <= 0.01 || tile[3] - tile[1] <= 0.01) {
+        throw error;
+      }
+      for (const childTile of splitBbox(tile, (tile[2] - tile[0]) / 2)) {
+        xmlParts.push(await fetchOsmTile(childTile));
+      }
+    }
+  }
+
+  const xml = [
+    '<osm version="0.6" generator="hud5-overlay-tiled-osm-cache">',
+    `<!-- source: ${sourceUrl} -->`,
+    `<!-- tiles: ${tiles.length} -->`,
+    ...xmlParts.map(part =>
+      part
+        .replace(/<\?xml[^>]*>\s*/g, '')
+        .replace(/<\/?osm\b[^>]*>/g, '')
+        .trim(),
+    ),
+    '</osm>',
+  ].join('\n');
   fs.mkdirSync(path.dirname(cachePath), { recursive: true });
   fs.writeFileSync(cachePath, xml, 'utf8');
-  return { xml, sourceUrl, downloaded: true };
+  return {
+    xml,
+    sourceUrl: tiles.length === 1 ? sourceUrl : `${sourceUrl} (tiled: ${tiles.length})`,
+    downloaded: true,
+  };
 }
 
 export function parseOsmRoads(osmXml) {
@@ -381,6 +435,52 @@ function writeSummary(points, rows, roads, sourceUrl, output) {
   fs.writeFileSync(output, lines.join('\n') + '\n', 'utf8');
 }
 
+function outputStem(inputName) {
+  const base = path.basename(inputName || 'track.gpx', path.extname(inputName || 'track.gpx'));
+  return base.replace(/[^a-zA-Z0-9._-]+/g, '_') || 'track';
+}
+
+export async function enrichGpxText(
+  originalGpx,
+  { inputName = 'track.gpx', outDir = 'output', marginDeg = 0.001, refreshOsm = false } = {},
+) {
+  const resolvedOutDir = path.resolve(outDir);
+  const stem = outputStem(inputName);
+  fs.mkdirSync(resolvedOutDir, { recursive: true });
+
+  const points = parseGpxTrack(originalGpx);
+  const bbox = bboxForPoints(points, marginDeg);
+  const osmCache = path.join(resolvedOutDir, `${stem}_osm_bbox.osm`);
+  const { xml: osmXml, sourceUrl, downloaded } = await loadOsmXml(bbox, osmCache, refreshOsm);
+  const roads = parseOsmRoads(osmXml);
+  if (roads.length === 0) throw new Error('No OSM highway ways found in bbox.');
+
+  const rows = enrichPoints(points, roads);
+  const csvPath = path.join(resolvedOutDir, `${stem}_enriched_points.csv`);
+  const gpxPath = path.join(resolvedOutDir, `${stem}_enriched.gpx`);
+  const geoJsonPath = path.join(resolvedOutDir, `${stem}_enriched.geojson`);
+  const summaryPath = path.join(resolvedOutDir, `${stem}_summary.md`);
+
+  writeCsv(rows, csvPath);
+  writeEnrichedGpx(originalGpx, rows, gpxPath);
+  writeGeoJson(points, rows, roads, sourceUrl, geoJsonPath);
+  writeSummary(points, rows, roads, sourceUrl, summaryPath);
+
+  return {
+    downloaded,
+    points,
+    roads,
+    geoJson: buildGeoJsonFeatureCollection(points, rows, roads, sourceUrl),
+    paths: {
+      csv: csvPath,
+      gpx: gpxPath,
+      geoJson: geoJsonPath,
+      summary: summaryPath,
+      osm: osmCache,
+    },
+  };
+}
+
 export async function run(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
   if (!args.input || !Number.isFinite(args.marginDeg)) {
@@ -391,35 +491,21 @@ export async function run(argv = process.argv.slice(2)) {
 
   const input = path.resolve(args.input);
   const outDir = path.resolve(args.outDir);
-  const stem = path.basename(input, path.extname(input));
-  fs.mkdirSync(outDir, { recursive: true });
-
   const originalGpx = fs.readFileSync(input, 'utf8');
-  const points = parseGpxTrack(originalGpx);
-  const bbox = bboxForPoints(points, args.marginDeg);
-  const osmCache = path.join(outDir, `${stem}_osm_bbox.osm`);
-  const { xml: osmXml, sourceUrl, downloaded } = await loadOsmXml(bbox, osmCache, args.refreshOsm);
-  const roads = parseOsmRoads(osmXml);
-  if (roads.length === 0) throw new Error('No OSM highway ways found in bbox.');
+  const result = await enrichGpxText(originalGpx, {
+    inputName: path.basename(input),
+    outDir,
+    marginDeg: args.marginDeg,
+    refreshOsm: args.refreshOsm,
+  });
 
-  const rows = enrichPoints(points, roads);
-  const csvPath = path.join(outDir, `${stem}_enriched_points.csv`);
-  const gpxPath = path.join(outDir, `${stem}_enriched.gpx`);
-  const geoJsonPath = path.join(outDir, `${stem}_enriched.geojson`);
-  const summaryPath = path.join(outDir, `${stem}_summary.md`);
-
-  writeCsv(rows, csvPath);
-  writeEnrichedGpx(originalGpx, rows, gpxPath);
-  writeGeoJson(points, rows, roads, sourceUrl, geoJsonPath);
-  writeSummary(points, rows, roads, sourceUrl, summaryPath);
-
-  console.log(`downloaded_osm=${downloaded}`);
-  console.log(`points=${points.length}`);
-  console.log(`roads=${roads.length}`);
-  console.log(`csv=${csvPath}`);
-  console.log(`gpx=${gpxPath}`);
-  console.log(`geojson=${geoJsonPath}`);
-  console.log(`summary=${summaryPath}`);
+  console.log(`downloaded_osm=${result.downloaded}`);
+  console.log(`points=${result.points.length}`);
+  console.log(`roads=${result.roads.length}`);
+  console.log(`csv=${result.paths.csv}`);
+  console.log(`gpx=${result.paths.gpx}`);
+  console.log(`geojson=${result.paths.geoJson}`);
+  console.log(`summary=${result.paths.summary}`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

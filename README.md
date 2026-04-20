@@ -129,10 +129,10 @@ GPX route 会被识别为 `planned`；普通 track 默认作为 `driven`。
 `scripts/enrich-gpx-with-osm.mjs` 可以从 GPX 轨迹范围下载 OpenStreetMap 路网，并输出适配小地图的 GeoJSON：
 
 ```bash
-npm run enrich:gpx -- local/activity_256997965.gpx output/gpx
+npm run enrich:gpx -- local/activity_256997965.gpx output
 ```
 
-Web UI 中也可以先拖入 GPX，再点击顶部工具栏的“补全路网”按钮；应用会在浏览器中生成带 `reference` 周边道路的小地图数据并立即加载。
+Web UI 中也可以先拖入 GPX，再点击顶部工具栏的“补全路网”按钮；应用会通过本地 Vite 开发服务器把补全结果保存到 `output/`，并立即加载带 `reference` 周边道路的小地图数据。
 
 输出文件：
 
