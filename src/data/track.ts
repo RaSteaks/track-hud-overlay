@@ -1,5 +1,6 @@
 import { gpx } from '@tmcw/togeojson';
 import type { Track, TrackLayer, TrackLayerKind, TrackPoint } from './schema';
+import { denoiseGpsPoints } from './gpsDenoise';
 import { projectLonLatLayers, type LonLat } from '../util/projection';
 import { clamp } from '../util/units';
 
@@ -25,7 +26,7 @@ function classifyKind(props: any, gpxType: string | undefined): TrackLayerKind {
   return 'driven';
 }
 
-function rawLayersFromGeoJson(geo: any): RawLayer[] {
+function rawLayersFromGeoJson(geo: any, denoiseGps = false): RawLayer[] {
   const out: RawLayer[] = [];
   for (const feature of geo.features ?? []) {
     const g = feature.geometry;
@@ -35,6 +36,7 @@ function rawLayersFromGeoJson(geo: any): RawLayer[] {
     const times: string[] | undefined = props.coordinateProperties?.times;
     const kind = classifyKind(props, gpxType);
     const name = props.name as string | undefined;
+    const shouldDenoise = denoiseGps || gpxType === 'trk' || gpxType === 'rte';
 
     const push = (coords: number[][], base = 0): RawPoint[] =>
       coords.map((c, i) => {
@@ -47,12 +49,14 @@ function rawLayersFromGeoJson(geo: any): RawLayer[] {
       });
 
     if (g.type === 'LineString') {
-      out.push({ kind, name, points: push(g.coordinates) });
+      const points = push(g.coordinates);
+      out.push({ kind, name, points: shouldDenoise ? denoiseGpsPoints(points) : points });
     } else if (g.type === 'MultiLineString') {
       let offset = 0;
       // Each segment becomes its own layer so pose can't jump across gaps.
       for (const seg of g.coordinates) {
-        out.push({ kind, name, points: push(seg, offset) });
+        const points = push(seg, offset);
+        out.push({ kind, name, points: shouldDenoise ? denoiseGpsPoints(points) : points });
         offset += seg.length;
       }
     }
@@ -108,7 +112,7 @@ function toTrack(rawLayers: RawLayer[]): Track {
 export function parseGpx(text: string): Track {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const geo = gpx(doc);
-  return toTrack(rawLayersFromGeoJson(geo));
+  return toTrack(rawLayersFromGeoJson(geo, true));
 }
 
 export function parseGeoJson(text: string): Track {
