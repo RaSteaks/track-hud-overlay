@@ -2,6 +2,7 @@ import { gpx } from '@tmcw/togeojson';
 import type { Track, TrackLayer, TrackLayerKind, TrackPoint } from './schema';
 import { projectLonLatLayers, type LonLat } from '../util/projection';
 import { clamp } from '../util/units';
+import { normalizeLonLat, type CoordinateSystem } from '../util/coordinateSystem';
 
 interface RawPoint extends LonLat {
   t?: number;
@@ -25,7 +26,7 @@ function classifyKind(props: any, gpxType: string | undefined): TrackLayerKind {
   return 'driven';
 }
 
-function rawLayersFromGeoJson(geo: any): RawLayer[] {
+function rawLayersFromGeoJson(geo: any, coordinateSystem: CoordinateSystem): RawLayer[] {
   const out: RawLayer[] = [];
   for (const feature of geo.features ?? []) {
     const g = feature.geometry;
@@ -39,9 +40,10 @@ function rawLayersFromGeoJson(geo: any): RawLayer[] {
     const push = (coords: number[][], base = 0): RawPoint[] =>
       coords.map((c, i) => {
         const ts = times?.[base + i];
+        const normalized = normalizeLonLat({ lon: c[0], lat: c[1] }, coordinateSystem);
         return {
-          lon: c[0],
-          lat: c[1],
+          lon: normalized.lon,
+          lat: normalized.lat,
           t: ts ? Date.parse(ts) / 1000 : undefined,
         };
       });
@@ -105,15 +107,15 @@ function toTrack(rawLayers: RawLayer[]): Track {
   return { layers, points: primary.points, totalLength: primary.totalLength };
 }
 
-export function parseGpx(text: string): Track {
+export function parseGpx(text: string, coordinateSystem: CoordinateSystem = 'wgs84'): Track {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const geo = gpx(doc);
-  return toTrack(rawLayersFromGeoJson(geo));
+  return toTrack(rawLayersFromGeoJson(geo, coordinateSystem));
 }
 
-export function parseGeoJson(text: string): Track {
+export function parseGeoJson(text: string, coordinateSystem: CoordinateSystem = 'wgs84'): Track {
   const geo = JSON.parse(text);
-  return toTrack(rawLayersFromGeoJson(geo));
+  return toTrack(rawLayersFromGeoJson(geo, coordinateSystem));
 }
 
 export interface TrackPose {

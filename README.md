@@ -116,6 +116,14 @@ t,speed_kmh,rpm,rpm_max,gear,throttle,brake,abs,tcs,progress,position_current,po
 
 路线会被投影到本地平面坐标后用于小地图。
 
+导入轨迹前可以在顶部工具栏选择原始坐标系：
+
+- `WGS-84`：GPX / GeoJSON / OpenStreetMap 常用标准，默认值
+- `GCJ-02`：高德、腾讯等国内地图常见坐标
+- `BD-09`：百度地图坐标
+
+应用内部会统一转换为 WGS-84 后再投影和匹配 OSM 路网。URL 自动化可传 `coord=wgs84|gcj02|bd09`。
+
 GeoJSON 图层可以通过 `properties.kind` 或 `properties.type` 指定：
 
 - `driven`：实际行驶轨迹
@@ -130,6 +138,12 @@ GPX route 会被识别为 `planned`；普通 track 默认作为 `driven`。
 
 ```bash
 npm run enrich:gpx -- local/activity_256997965.gpx output
+```
+
+如果 GPX 来源不是 WGS-84，可以指定：
+
+```bash
+npm run enrich:gpx -- local/activity.gpx output --coord=gcj02
 ```
 
 Web UI 中也可以先拖入 GPX，再点击顶部工具栏的“补全路网”按钮；应用会通过本地 Vite 开发服务器把补全结果保存到 `output/`，并立即加载带 `reference` 周边道路的小地图数据。

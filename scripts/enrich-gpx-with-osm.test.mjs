@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildGeoJsonFeatureCollection, enrichGpxText, splitBbox } from './enrich-gpx-with-osm.mjs';
+import { buildGeoJsonFeatureCollection, enrichGpxText, parseGpxTrack, splitBbox } from './enrich-gpx-with-osm.mjs';
 
 test('buildGeoJsonFeatureCollection emits project layer kinds', () => {
   const points = [
@@ -94,4 +94,17 @@ test('splitBbox breaks long routes into OSM-sized tiles', () => {
     assert.ok(east - west <= 0.0800001);
     assert.ok(north - south <= 0.0800001);
   }
+});
+
+test('parseGpxTrack normalizes BD-09 input to WGS-84', () => {
+  const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk><trkseg>
+    <trkpt lat="36.656" lon="117.0565"></trkpt>
+  </trkseg></trk>
+</gpx>`;
+  const [point] = parseGpxTrack(gpx, 'bd09');
+
+  assert.ok(Math.abs(point.lat - 36.656) > 0.0001);
+  assert.ok(Math.abs(point.lon - 117.0565) > 0.0001);
 });

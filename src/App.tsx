@@ -4,6 +4,19 @@ import { usePlayback, startPlaybackLoop } from './playback/store';
 import { parseTelemetryCsv, parseTelemetryJson } from './data/telemetry';
 import { parseGpx, parseGeoJson } from './data/track';
 import type { SpeedUnit } from './util/units';
+import {
+  COORDINATE_SYSTEM_LABELS,
+  parseCoordinateSystem,
+  type CoordinateSystem,
+} from './util/coordinateSystem';
+
+type TrackSource = {
+  kind: 'gpx' | 'geojson';
+  name: string;
+  text: string;
+};
+
+const COORDINATE_SYSTEM_STORAGE_KEY = 'hud5.coordinateSystem.v1';
 
 async function loadTelemetryFromUrl(url: string) {
   const res = await fetch(url);
@@ -11,19 +24,29 @@ async function loadTelemetryFromUrl(url: string) {
   return url.endsWith('.json') ? parseTelemetryJson(text) : parseTelemetryCsv(text);
 }
 
-async function loadTrackFromUrl(url: string) {
+async function loadTrackFromUrl(url: string, coordinateSystem: CoordinateSystem) {
   const res = await fetch(url);
   const text = await res.text();
+  const kind: TrackSource['kind'] = url.match(/\.geojson$/i) ? 'geojson' : 'gpx';
   return {
-    track: url.match(/\.geojson$/i) ? parseGeoJson(text) : parseGpx(text),
-    gpxSource: url.match(/\.gpx$/i) ? { name: url.split('/').pop() ?? 'track.gpx', text } : null,
+    track: parseTrackText(kind, text, coordinateSystem),
+    source: { kind, name: url.split('/').pop() ?? `track.${kind}`, text },
   };
+}
+
+function parseTrackText(kind: TrackSource['kind'], text: string, coordinateSystem: CoordinateSystem) {
+  return kind === 'geojson'
+    ? parseGeoJson(text, coordinateSystem)
+    : parseGpx(text, coordinateSystem);
 }
 
 export function App() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [gpxSource, setGpxSource] = useState<{ name: string; text: string } | null>(null);
+  const [trackSource, setTrackSource] = useState<TrackSource | null>(null);
+  const [coordinateSystem, setCoordinateSystemState] = useState<CoordinateSystem>(() =>
+    parseCoordinateSystem(localStorage.getItem(COORDINATE_SYSTEM_STORAGE_KEY)),
+  );
   const [enrichingTrack, setEnrichingTrack] = useState(false);
   const [telemetryUrl, setTelemetryUrl] = useState<string | null>(null);
   const [trackUrl, setTrackUrl] = useState<string | null>(null);
@@ -48,6 +71,25 @@ export function App() {
 
   useEffect(() => startPlaybackLoop(), []);
 
+  const setCoordinateSystem = (next: CoordinateSystem) => {
+    setCoordinateSystemState(next);
+    try {
+      localStorage.setItem(COORDINATE_SYSTEM_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  useEffect(() => {
+    if (!trackSource) return;
+    try {
+      usePlayback.getState().setTrack(parseTrackText(trackSource.kind, trackSource.text, coordinateSystem));
+      setError(null);
+    } catch (e) {
+      setError(`Failed to parse ${trackSource.name}: ${e}`);
+    }
+  }, [coordinateSystem, trackSource]);
+
   useEffect(() => {
     const stored = loadStoredExport();
     if (stored && stored.width > 0 && stored.height > 0) {
@@ -68,11 +110,16 @@ export function App() {
     const trk = q.get('track');
     const player = q.get('player');
     const u = q.get('unit');
+    const hasCoordParam = q.has('coord') || q.has('coordinateSystem');
+    const coord = hasCoordParam
+      ? parseCoordinateSystem(q.get('coord') ?? q.get('coordinateSystem'))
+      : coordinateSystem;
     const exporter = q.get('exporter') === '1';
     const t0 = Number(q.get('t') ?? '0');
 
     if (player) usePlayback.getState().setProfile({ name: player });
     if (u === 'mph' || u === 'kmh') usePlayback.getState().setUnit(u);
+    if (hasCoordParam) setCoordinateSystem(coord);
     if (exporter) {
       usePlayback.getState().setExporterMode(true);
       document.body.classList.add('exporter');
@@ -85,9 +132,9 @@ export function App() {
           setTelemetryUrl(tel);
         }
         if (trk) {
-          const loaded = await loadTrackFromUrl(trk);
+          const loaded = await loadTrackFromUrl(trk, coord);
           usePlayback.getState().setTrack(loaded.track);
-          setGpxSource(loaded.gpxSource);
+          setTrackSource(loaded.source);
           setTrackUrl(trk);
         }
         if (!Number.isNaN(t0)) usePlayback.getState().seek(t0);
@@ -161,12 +208,12 @@ export function App() {
           usePlayback.getState().setTelemetry(parseTelemetryJson(text));
           setTelemetryUrl(`/samples/${file.name}`);
         } else if (name.endsWith('.gpx')) {
-          usePlayback.getState().setTrack(parseGpx(text));
-          setGpxSource({ name: file.name, text });
+          usePlayback.getState().setTrack(parseGpx(text, coordinateSystem));
+          setTrackSource({ kind: 'gpx', name: file.name, text });
           setTrackUrl(`/samples/${file.name}`);
         } else if (name.endsWith('.geojson')) {
-          usePlayback.getState().setTrack(parseGeoJson(text));
-          setGpxSource(null);
+          usePlayback.getState().setTrack(parseGeoJson(text, coordinateSystem));
+          setTrackSource({ kind: 'geojson', name: file.name, text });
           setTrackUrl(`/samples/${file.name}`);
         } else {
           setError(`Unknown file type: ${file.name}`);
@@ -209,9 +256,9 @@ export function App() {
     try {
       usePlayback.getState().setTelemetry(await loadTelemetryFromUrl('/samples/telemetry.csv'));
       setTelemetryUrl('/samples/telemetry.csv');
-      const loaded = await loadTrackFromUrl('/samples/track.gpx');
+      const loaded = await loadTrackFromUrl('/samples/track.gpx', coordinateSystem);
       usePlayback.getState().setTrack(loaded.track);
-      setGpxSource(loaded.gpxSource);
+      setTrackSource(loaded.source);
       setTrackUrl('/samples/track.gpx');
     } catch (e) {
       setError(String(e));
@@ -219,7 +266,7 @@ export function App() {
   };
 
   const enrichCurrentGpx = async () => {
-    if (!gpxSource || enrichingTrack) return;
+    if (!trackSource || trackSource.kind !== 'gpx' || enrichingTrack) return;
     setError(null);
     setEnrichingTrack(true);
     try {
@@ -227,8 +274,9 @@ export function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          inputName: gpxSource.name,
-          gpxText: gpxSource.text,
+          inputName: trackSource.name,
+          gpxText: trackSource.text,
+          coordinateSystem,
         }),
       });
       const contentType = res.headers.get('content-type') ?? '';
@@ -344,7 +392,9 @@ export function App() {
         <>
           <Toolbar
             unit={unit}
-            canEnrichTrack={!!gpxSource}
+            coordinateSystem={coordinateSystem}
+            onCoordinateSystemChange={setCoordinateSystem}
+            canEnrichTrack={trackSource?.kind === 'gpx'}
             enrichingTrack={enrichingTrack}
             onEnrichTrack={enrichCurrentGpx}
             telemetryDuration={telemetry?.duration ?? 0}
@@ -386,6 +436,8 @@ export function App() {
 
 function Toolbar({
   unit,
+  coordinateSystem,
+  onCoordinateSystemChange,
   canEnrichTrack,
   enrichingTrack,
   onEnrichTrack,
@@ -397,6 +449,8 @@ function Toolbar({
   trackUrl,
 }: {
   unit: SpeedUnit;
+  coordinateSystem: CoordinateSystem;
+  onCoordinateSystemChange: (coordinateSystem: CoordinateSystem) => void;
   canEnrichTrack: boolean;
   enrichingTrack: boolean;
   onEnrichTrack: () => void;
@@ -438,6 +492,20 @@ function Toolbar({
         >
           <option value="kmh">km/h</option>
           <option value="mph">MPH</option>
+        </select>
+      </label>
+      <label title="选择导入的 GPX/GeoJSON 原始坐标系；内部会统一转换为 WGS-84">
+        坐标系
+        <select
+          value={coordinateSystem}
+          onChange={e => onCoordinateSystemChange(e.target.value as CoordinateSystem)}
+          style={{ marginLeft: 6 }}
+        >
+          {(Object.keys(COORDINATE_SYSTEM_LABELS) as CoordinateSystem[]).map(value => (
+            <option key={value} value={value}>
+              {COORDINATE_SYSTEM_LABELS[value]}
+            </option>
+          ))}
         </select>
       </label>
       <label>
@@ -516,6 +584,7 @@ function Toolbar({
         {exportOpen && (
           <ExportSettingsPanel
             unit={unit}
+            coordinateSystem={coordinateSystem}
             player={profile.name}
             defaultDuration={Math.max(telemetryDuration, videoDuration) || 10}
             defaultWidth={videoWidth > 0 ? videoWidth : 1920}
@@ -601,6 +670,7 @@ function shellQuote(v: string): string {
 
 function ExportSettingsPanel({
   unit,
+  coordinateSystem,
   player,
   defaultDuration,
   defaultWidth,
@@ -610,6 +680,7 @@ function ExportSettingsPanel({
   onClose,
 }: {
   unit: SpeedUnit;
+  coordinateSystem: CoordinateSystem;
   player: string;
   defaultDuration: number;
   defaultWidth: number;
@@ -672,11 +743,12 @@ function ExportSettingsPanel({
       '--width', String(width),
       '--height', String(height),
       '--unit', unit,
+      '--coord', coordinateSystem,
       '--player', player,
       '--out', outPath,
     ];
     return args.map(shellQuote).join(' ');
-  }, [telemetryUrl, trackUrl, duration, fps, width, height, unit, player, outPath]);
+  }, [telemetryUrl, trackUrl, duration, fps, width, height, unit, coordinateSystem, player, outPath]);
 
   const applyFormat = (f: ExportFormat) => {
     setFormat(f);

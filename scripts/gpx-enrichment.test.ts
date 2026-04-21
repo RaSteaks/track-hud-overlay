@@ -34,3 +34,10 @@ test('buildProjectGeoJson creates minimap driven and reference layers', () => {
   assert.equal(geo.features[1].properties.highway, 'cycleway');
   assert.equal(geo.features[2].properties.kind, 'metadata');
 });
+
+test('parseGpxTrackPoints normalizes GCJ-02 input to WGS-84', () => {
+  const points = parseGpxTrackPoints(GPX, 'gcj02');
+
+  assert.ok(Math.abs(points[0].lat - 36.65) > 0.0001);
+  assert.ok(Math.abs(points[0].lon - 117.05) > 0.0001);
+});

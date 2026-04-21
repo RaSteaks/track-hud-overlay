@@ -6,3 +6,6 @@ out
 tsconfig.tsbuildinfo
 local
 output
+.qoder
+.vscode
+.venv
