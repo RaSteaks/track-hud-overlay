@@ -94,8 +94,10 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   const viewRadiusM = usePlayback(s => s.settings.minimapViewRadiusM);
   const tiltDeg = usePlayback(s => s.settings.minimapTiltDeg);
   const strokeWidth = usePlayback(s => s.settings.minimapStrokeWidth);
+  const trackTimeOffsetSec = usePlayback(s => s.settings.trackTimeOffsetSec);
   const mToPx = RADIUS / viewRadiusM;
   const disc = DISC * discScale;
+  const trackTime = currentTime + trackTimeOffsetSec;
   const [displayMapAngle, setDisplayMapAngle] = useState(0);
   const headingRef = useRef<{
     displayedDeg: number;
@@ -118,7 +120,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   const hasTrackTime = track?.points.length && track.points[0].t !== undefined;
   const pose = track
     ? poseAt(track, {
-        time: hasTrackTime ? currentTime : undefined,
+        time: hasTrackTime ? trackTime : undefined,
         progress: sample?.progress,
       })
     : null;
@@ -139,7 +141,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   const drivenLayer = layers.find(l => l.kind === 'driven') ?? plannedLayer;
 
   const drivenSplit = drivenLayer
-    ? splitLayerAtTarget(drivenLayer, currentTime, progressFrac)
+    ? splitLayerAtTarget(drivenLayer, trackTime, progressFrac)
     : null;
 
   const [mx, my] = pose ? toViewCoord(pose.x, pose.y, mToPx) : [DISC / 2, DISC / 2];
@@ -153,7 +155,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
   useEffect(() => {
     const headingState = headingRef.current;
     const trackChanged = headingState.track !== track;
-    const elapsedDataTime = currentTime - headingState.dataTime;
+    const elapsedDataTime = trackTime - headingState.dataTime;
     const shouldSnapHeading =
       !headingState.initialized ||
       !hasPose ||
@@ -162,7 +164,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
       elapsedDataTime > 1;
 
     headingState.targetDeg = targetMapAngle;
-    headingState.dataTime = currentTime;
+    headingState.dataTime = trackTime;
     headingState.track = track;
 
     const stopAnimation = () => {
@@ -210,7 +212,7 @@ export function Minimap({ track, sample, currentTime, playerName }: Props) {
 
     headingState.frameTimeMs = performance.now();
     headingState.raf = requestAnimationFrame(animate);
-  }, [currentTime, hasPose, targetMapAngle, track]);
+  }, [hasPose, targetMapAngle, track, trackTime]);
 
   useEffect(() => {
     return () => {

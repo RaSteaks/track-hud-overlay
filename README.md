@@ -200,6 +200,7 @@ node scripts/export-frames.mjs \
   --width 1920 \
   --height 1080 \
   --coord wgs84 \
+  --track-offset 0 \
   --out out/hud.webm
 ```
 
@@ -227,6 +228,7 @@ node scripts/export-frames.mjs \
 | `player`     | 玩家名称                                         |
 | `unit`       | `kmh` 或 `mph`                               |
 | `coord`      | 轨迹原始坐标系：`wgs84`、`gcj02` 或 `bd09` |
+| `trackOffset` | GPX 时间偏移，单位秒；实际查询时间为 `video currentTime + trackOffset` |
 | `t`          | 初始时间，单位秒                                 |
 | `exporter=1` | 开启透明导出模式，隐藏控制栏                     |
 
@@ -255,6 +257,7 @@ hud5.settings.v1
 高级设置当前包括：
 
 - 轨迹原始坐标系：`WGS-84`、`GCJ-02`、`BD-09`
+- GPX 时间偏移：用于校准视频起点和 GPX 第一个时间点不一致的情况
 - 路径吸附：是否把实际行驶点吸附到 `reference` 道路，以及最大吸附距离
 - 小地图：可视半径、俯视角和道路线宽
 

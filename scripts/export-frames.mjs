@@ -8,7 +8,7 @@
 //     --track /samples/track.gpx \
 //     --duration 120 --fps 60 \
 //     --width 1920 --height 1080 \
-//     --coord wgs84 \
+//     --coord wgs84 --track-offset 0 \
 //     --out out/hud.webm
 //
 // Prereqs:
@@ -38,6 +38,7 @@ const HEIGHT = Number(arg('height', '1080'));
 const UNIT = arg('unit', 'kmh');
 const PLAYER = arg('player', 'ANNA');
 const COORD = arg('coord', 'wgs84');
+const TRACK_OFFSET = arg('track-offset', '0');
 const OUT = arg('out', 'out/hud.webm');
 
 const framesDir = resolve(ROOT, 'out', 'frames');
@@ -53,6 +54,7 @@ url.searchParams.set('exporter', '1');
 url.searchParams.set('unit', UNIT);
 url.searchParams.set('player', PLAYER);
 url.searchParams.set('coord', COORD);
+url.searchParams.set('trackOffset', TRACK_OFFSET);
 
 console.log(`[export] opening ${url}`);
 const browser = await puppeteer.launch({

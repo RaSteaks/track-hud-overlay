@@ -32,6 +32,7 @@ const SETTINGS_KEY = 'hud5.settings.v1';
 
 export interface HudSettings {
   trackCoordinateSystem: CoordinateSystem;
+  trackTimeOffsetSec: number;
   snapToRoads: boolean;
   snapMaxDistM: number;
   minimapViewRadiusM: number;
@@ -41,6 +42,7 @@ export interface HudSettings {
 
 export const DEFAULT_SETTINGS: HudSettings = {
   trackCoordinateSystem: 'wgs84',
+  trackTimeOffsetSec: 0,
   snapToRoads: true,
   snapMaxDistM: 5,
   minimapViewRadiusM: 50,
@@ -54,6 +56,9 @@ function normalizeSettings(parsed: unknown): HudSettings {
     const rec = parsed as Record<string, unknown>;
     if (typeof rec.trackCoordinateSystem === 'string' && isCoordinateSystem(rec.trackCoordinateSystem)) {
       out.trackCoordinateSystem = rec.trackCoordinateSystem;
+    }
+    if (typeof rec.trackTimeOffsetSec === 'number' && Number.isFinite(rec.trackTimeOffsetSec)) {
+      out.trackTimeOffsetSec = rec.trackTimeOffsetSec;
     }
     if (typeof rec.snapToRoads === 'boolean') out.snapToRoads = rec.snapToRoads;
     if (typeof rec.snapMaxDistM === 'number' && rec.snapMaxDistM >= 0) {

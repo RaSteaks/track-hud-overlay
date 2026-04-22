@@ -117,7 +117,7 @@ export function App() {
     }
   }, []);
 
-  // URL params: ?telemetry=...&track=...&player=...&unit=mph&exporter=1&t=0
+  // URL params: ?telemetry=...&track=...&player=...&unit=mph&exporter=1&t=0&trackOffset=0
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const tel = q.get('telemetry');
@@ -127,11 +127,15 @@ export function App() {
     const coord = q.get('coord');
     const exporter = q.get('exporter') === '1';
     const t0 = Number(q.get('t') ?? '0');
+    const trackOffset = Number(q.get('trackOffset') ?? q.get('trackTimeOffset') ?? 'NaN');
 
     if (player) usePlayback.getState().setProfile({ name: player });
     if (u === 'mph' || u === 'kmh') usePlayback.getState().setUnit(u);
     if (isCoordinateSystem(coord)) {
       usePlayback.getState().setSetting('trackCoordinateSystem', coord);
+    }
+    if (Number.isFinite(trackOffset)) {
+      usePlayback.getState().setSetting('trackTimeOffsetSec', trackOffset);
     }
     if (exporter) {
       usePlayback.getState().setExporterMode(true);
@@ -819,6 +823,7 @@ function ExportSettingsPanel({
   const [telemetryUrl, setTelemetryUrl] = useState(defaultTelemetryUrl);
   const [trackUrl, setTrackUrl] = useState(defaultTrackUrl);
   const trackCoordinateSystem = usePlayback(s => s.settings.trackCoordinateSystem);
+  const trackTimeOffsetSec = usePlayback(s => s.settings.trackTimeOffsetSec);
 
   useEffect(() => {
     setTelemetryUrl(defaultTelemetryUrl);
@@ -850,6 +855,7 @@ function ExportSettingsPanel({
       '--unit', unit,
       '--player', player,
       '--coord', trackCoordinateSystem,
+      '--track-offset', String(trackTimeOffsetSec),
       '--out', outPath,
     ];
     return args.map(shellQuote).join(' ');
@@ -863,6 +869,7 @@ function ExportSettingsPanel({
     unit,
     player,
     trackCoordinateSystem,
+    trackTimeOffsetSec,
     outPath,
   ]);
 
@@ -1201,6 +1208,7 @@ function AdvancedSettingsPanel({ onClose }: { onClose: () => void }) {
   const settings = usePlayback(s => s.settings);
   const setSetting = usePlayback(s => s.setSetting);
   const resetSettings = usePlayback(s => s.resetSettings);
+  const projectFps = usePlayback(s => s.projectFps);
 
   const labelStyle: React.CSSProperties = {
     display: 'flex',
@@ -1225,6 +1233,26 @@ function AdvancedSettingsPanel({ onClose }: { onClose: () => void }) {
     letterSpacing: '0.15em',
     marginTop: 4,
   };
+  const compactButtonStyle: React.CSSProperties = {
+    minHeight: 32,
+    background: '#2b2b2b',
+    color: '#eee',
+    border: '1px solid #4a4a4a',
+    borderRadius: 3,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: 12,
+    fontVariantNumeric: 'tabular-nums',
+  };
+  const setTrackOffset = (value: number) => {
+    if (!Number.isFinite(value)) return;
+    const clamped = Math.max(-3600, Math.min(3600, value));
+    setSetting('trackTimeOffsetSec', Number(clamped.toFixed(6)));
+  };
+  const adjustTrackOffset = (delta: number) => {
+    setTrackOffset(settings.trackTimeOffsetSec + delta);
+  };
+  const frameStepSec = 1 / Math.max(projectFps || 60, 1);
 
   const numberField = <K extends keyof HudSettings>(
     key: K,
@@ -1306,6 +1334,46 @@ function AdvancedSettingsPanel({ onClose }: { onClose: () => void }) {
         会在投影和路网补全前转换为 WGS-84。
       </div>
 
+      <div style={sectionTitle}>时间对齐</div>
+      <div style={labelStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ flex: 1, color: '#ddd' }}>
+            GPX 时间偏移:{' '}
+            <b style={{ color: '#fff', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              {settings.trackTimeOffsetSec.toFixed(3)}s
+            </b>
+          </span>
+          <input
+            aria-label="GPX 时间偏移秒数"
+            type="number"
+            min={-3600}
+            max={3600}
+            step={0.01}
+            value={settings.trackTimeOffsetSec}
+            onChange={e => setTrackOffset(Number(e.target.value))}
+            style={{ ...inputStyle, width: 92, fontVariantNumeric: 'tabular-nums' }}
+          />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+          <button type="button" onClick={() => adjustTrackOffset(-frameStepSec)} style={compactButtonStyle}>
+            -1f
+          </button>
+          <button type="button" onClick={() => adjustTrackOffset(frameStepSec)} style={compactButtonStyle}>
+            +1f
+          </button>
+          <button type="button" onClick={() => adjustTrackOffset(-0.01)} style={compactButtonStyle}>
+            -0.01s
+          </button>
+          <button type="button" onClick={() => adjustTrackOffset(0.01)} style={compactButtonStyle}>
+            +0.01s
+          </button>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: '#777', lineHeight: 1.5 }}>
+        小地图使用 video currentTime + 该偏移查询 GPX 位置；正值会让 GPX 位置更靠后，
+        负值用于视频开头比 GPX 记录更早的情况。
+      </div>
+
       <div style={sectionTitle}>路径吸附</div>
       <label
         style={{
@@ -1367,7 +1435,7 @@ function AdvancedSettingsPanel({ onClose }: { onClose: () => void }) {
         默认值：坐标系 {COORDINATE_SYSTEM_LABELS[DEFAULT_SETTINGS.trackCoordinateSystem]} · 阈值{' '}
         {DEFAULT_SETTINGS.snapMaxDistM} m · 半径{' '}
         {DEFAULT_SETTINGS.minimapViewRadiusM} m · 俯视 {DEFAULT_SETTINGS.minimapTiltDeg}° · 线宽{' '}
-        {DEFAULT_SETTINGS.minimapStrokeWidth}
+        {DEFAULT_SETTINGS.minimapStrokeWidth} · GPX 偏移 {DEFAULT_SETTINGS.trackTimeOffsetSec}s
       </div>
     </div>
   );
